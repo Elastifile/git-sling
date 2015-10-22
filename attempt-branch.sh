@@ -11,7 +11,8 @@ abort() {
     # Go back to staging otherwise branch -d might fail.
     git reset --hard
     git checkout staging
-    git branch -D "${SOURCE_BRANCH_NAME}"
+    git branch -D "${SOURCE_BRANCH_NAME}" || echo "delete local branch failed, ignoring"
+    exit 1
 }
 reject() {
     echo "rejecting: $BRANCH_NAME"
@@ -20,7 +21,6 @@ reject() {
         || echo "Not overriding existing rejected branch"
     git push --delete origin "${SOURCE_BRANCH_NAME}"
     abort
-    exit 1
 }
 
 rebase_failed() {
@@ -48,6 +48,5 @@ trap "abort" EXIT
 
 git push
 
-git branch -D "${SOURCE_BRANCH_NAME}"
 git push --delete origin "${SOURCE_BRANCH_NAME}"
 
