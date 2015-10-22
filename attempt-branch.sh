@@ -17,12 +17,18 @@ reject() {
     exit 1
 }
 
+rebase_failed() {
+    git rebase --abort
+    # TODO send email...
+    exit 1
+}
+
 trap "reject" EXIT
 
 git fetch
 git reset --hard
 git checkout $SOURCE_BRANCH_NAME
-git rebase origin/staging || (git rebase --abort ; exit 1)
+git rebase origin/staging || rebase_failed
 git checkout staging
 git merge --no-ff $SOURCE_BRANCH_NAME
 
