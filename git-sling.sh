@@ -3,9 +3,9 @@
 SOURCE_BRANCH_PREFIX="sling/$1"
 TARGET_BRANCH_PREFIX="sling/$2"
 COMMAND="$3"
-
 SOURCE_DIR=$(dirname $BASH_SOURCE)
 
+git remote prune origin
 git fetch
 
 git branch -r | \
