@@ -32,6 +32,6 @@ git push
 
 trap - EXIT
 
-git branch -d "${SOURCE_BRANCH_NAME}"
+git branch -D "${SOURCE_BRANCH_NAME}"
 git push --delete origin "${SOURCE_BRANCH_NAME}"
 
