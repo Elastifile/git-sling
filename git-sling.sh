@@ -11,5 +11,6 @@ git fetch
 git branch -r | \
     sed -e 's,^ *origin/\(.*\),\1,g' | \
     grep "^$SOURCE_BRANCH_PREFIX.*" | \
+    sort -g -t '/' | \
     xargs -r -n1  -t $SOURCE_DIR/attempt-branch.sh $SOURCE_BRANCH_PREFIX $TARGET_BRANCH_PREFIX "$COMMAND"
 
