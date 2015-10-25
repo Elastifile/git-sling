@@ -1,14 +1,21 @@
-#!/bin/bash -eux
+#!/bin/bash -eu
 # Proposes a new branch for slinging onto staging.
 #
-# USAGE: git-propose.sh my_branch
+# USAGE:
+#
+#   git checkout <my_branch>
+#   git-propose.sh
 #
 # This will create a new remote branch sling/proposed/N/my_branch,
 # where N is the order in the queue
 #
-PROPOSED_BRANCH="$1"
 SLING_PREFIX="sling"
 PROPOSED_PREFIX="$SLING_PREFIX/proposed/"
+
+git describe --dirty --all | (grep -E ".*-dirty$" && abort_unclean || echo "Working directory clean")
+PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+echo "Proposing: $PROPOSED_BRANCH"
 
 git fetch
 
@@ -21,4 +28,7 @@ INDEX=$(git branch -r | \
                sort -g | \
                tail -1)
 NEXT_INDEX=$(($INDEX + 1))
-git push -u origin "$PROPOSED_BRANCH:${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH"
+REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH"
+git push -u origin "$PROPOSED_BRANCH:$REMOTE_BRANCH"
+
+echo "Pushed to: $REMOTE_BRANCH. To unpropose, use: git push --delete origin $REMOTE_BRANCH"
