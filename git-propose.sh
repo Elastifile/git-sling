@@ -12,6 +12,11 @@
 SLING_PREFIX="sling"
 PROPOSED_PREFIX="$SLING_PREFIX/proposed/"
 
+abort_unclean() {
+    echo "Working dir is dirty! Use stash or clean."
+    exit 1
+}
+
 git describe --dirty --all | (grep -E ".*-dirty$" && abort_unclean || echo "Working directory clean")
 PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
@@ -28,7 +33,12 @@ INDEX=$(git branch -r | \
                sort -g | \
                tail -1)
 NEXT_INDEX=$(($INDEX + 1))
-REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH"
+git config user.email | grep "\-at\-" && \
+    ( echo "your email contains '-at-' /";
+      echo " we don't support    that!";
+      exit 1)
+EMAIL=$(git config user.email | sed -s 's/@/-at-/g')
+REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH/$EMAIL"
 git push origin "$PROPOSED_BRANCH:$REMOTE_BRANCH"
 
 echo "-----"
