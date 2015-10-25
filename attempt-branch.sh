@@ -18,7 +18,7 @@ reject() {
     echo "rejecting: $BRANCH_NAME"
     (git checkout -b "${REJECT_BRANCH_PREFIX}${BRANCH_NAME}" && \
             git push -u origin "${REJECT_BRANCH_PREFIX}${BRANCH_NAME}") \
-        || echo "Not overriding existing rejected branch"
+        || echo "Failed to create 'reject' branch - already exists?"
     git push --delete origin "${SOURCE_BRANCH_NAME}"
     abort
 }
