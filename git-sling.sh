@@ -1,13 +1,14 @@
 #!/bin/bash -eux
 #
-# USAGE: git-sling.sh proposed/ "build_script.sh && test_foo"
+# USAGE: git-sling.sh "build_script.sh && test_foo"
 #
 # Reads proposed branches from origin, and tries to sling each of them
 # onto staging, using attempt-branch.sh. Uses the order index (expects
 # a format: sling/proposed/N/branch_name)
 #
-SOURCE_BRANCH_PREFIX="sling/$1"
-COMMAND="$2"
+COMMAND="$1"
+SLING_PREFIX="sling"
+SOURCE_BRANCH_PREFIX="$SLING_PREFIX/proposed/"
 SOURCE_DIR=$(dirname $BASH_SOURCE)
 
 git remote prune origin

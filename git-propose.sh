@@ -7,16 +7,17 @@
 # where N is the order in the queue
 #
 PROPOSED_BRANCH="$1"
-PROPOSED_PREFIX="sling/proposed/"
+SLING_PREFIX="sling"
+PROPOSED_PREFIX="$SLING_PREFIX/proposed/"
 
 git fetch
 
 # The index here gives an approximate ordering (because it isn't
 # atomic on the remove status). That's good enough for now.
 INDEX=$(git branch -r | \
-               (grep -E "$PROPOSED_PREFIX[0-9]+" \
+               (grep -E "$SLING_PREFIX.*/[0-9]+" \
                        || echo 0) | \
-               sed -r "s,.*$PROPOSED_PREFIX([0-9]+).*,\1,g" | \
+               sed -r "s,.*$SLING_PREFIX.*/([0-9]+).*,\1,g" | \
                sort -g | \
                tail -1)
 NEXT_INDEX=$(($INDEX + 1))
