@@ -24,7 +24,7 @@ send_email() {
     RECEIPIENTS="$PROPOSER_EMAIL"
     BODY_FILE=$(mktemp)
     echo "Sending email to $RECEIPIENTS: $MESSAGE"
-    echo "$MESSAGE" > $BODY_FILE
+    echo "Subject: [sling] $MESSAGE" > $BODY_FILE
     echo "------------------------" >> $BODY_FILE
     echo "Log: "                    >> $BODY_FILE
     echo "------------------------" >> $BODY_FILE
