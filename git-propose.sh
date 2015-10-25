@@ -8,11 +8,16 @@
 #
 PROPOSED_BRANCH="$1"
 PROPOSED_PREFIX="sling/proposed/"
+
 git fetch
-index=$(git branch -r | \
+
+# The index here gives an approximate ordering (because it isn't
+# atomic on the remove status). That's good enough for now.
+INDEX=$(git branch -r | \
                (grep -E "$PROPOSED_PREFIX[0-9]+" \
                        || echo 0) | \
                sed -r "s,.*$PROPOSED_PREFIX([0-9]+).*,\1,g" | \
                sort -g | \
                tail -1)
-git push -u origin "$PROPOSED_BRANCH:${PROPOSED_PREFIX}$(($index + 1))/$PROPOSED_BRANCH"
+NEXT_INDEX=$(($INDEX + 1))
+git push -u origin "$PROPOSED_BRANCH:${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH"
