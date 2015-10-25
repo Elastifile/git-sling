@@ -29,6 +29,9 @@ INDEX=$(git branch -r | \
                tail -1)
 NEXT_INDEX=$(($INDEX + 1))
 REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH"
-git push -u origin "$PROPOSED_BRANCH:$REMOTE_BRANCH"
+git push origin "$PROPOSED_BRANCH:$REMOTE_BRANCH"
 
-echo "Pushed to: $REMOTE_BRANCH. To unpropose, use: git push --delete origin $REMOTE_BRANCH"
+echo "-----"
+echo "Pushed to: $REMOTE_BRANCH"
+echo "-----"
+echo "To unpropose, use: git push --delete origin $REMOTE_BRANCH"
