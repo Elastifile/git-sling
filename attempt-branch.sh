@@ -33,6 +33,12 @@ trap "abort" EXIT
 
 git fetch
 git reset --hard
+
+git checkout staging
+git reset --hard origin/staging
+git merge origin/master --ff-only
+git push
+
 git checkout $SOURCE_BRANCH_NAME
 
 
