@@ -26,7 +26,9 @@ send_email() {
     echo "Sending email to $RECEIPIENTS: $MESSAGE"
     echo "To: $RECEIPIENTS"          > $BODY_FILE
     echo "Subject: [sling] $MESSAGE">> $BODY_FILE
+    echo                            >> $BODY_FILE
     echo "$MESSAGE"                 >> $BODY_FILE
+    echo                            >> $BODY_FILE
     echo "------------------------" >> $BODY_FILE
     echo "Tail of log: "            >> $BODY_FILE
     echo "------------------------" >> $BODY_FILE
