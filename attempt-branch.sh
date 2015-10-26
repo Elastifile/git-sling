@@ -28,7 +28,11 @@ send_email() {
     echo "Subject: [sling] $MESSAGE">> $BODY_FILE
     echo "$MESSAGE"                 >> $BODY_FILE
     echo "------------------------" >> $BODY_FILE
-    echo "Log: "                    >> $BODY_FILE
+    echo "Tail of log: "            >> $BODY_FILE
+    echo "------------------------" >> $BODY_FILE
+    tail -100 $LOG_FILENAME         >> $BODY_FILE
+    echo "------------------------" >> $BODY_FILE
+    echo "Full Log: "               >> $BODY_FILE
     echo "------------------------" >> $BODY_FILE
     cat $LOG_FILENAME >> $BODY_FILE
     cat $BODY_FILE | $MSMTP $RECEIPIENTS || (echo "Failed sending email to $RECEIPIENTS")
