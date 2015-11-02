@@ -45,6 +45,7 @@ abort() {
     # Go back to staging otherwise branch -d might fail.
     git reset --hard
     git checkout staging
+    git reset --hard origin/staging
     git branch -D "${SOURCE_BRANCH_NAME}" || echo "delete local branch failed, ignoring"
     exit 1
 }
