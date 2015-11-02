@@ -24,6 +24,12 @@ echo "Proposing: $PROPOSED_BRANCH"
 
 git fetch
 
+echo "Rebasing onto origin/staging"
+
+git rebase origin/staging || (echo "Rebase failed, please correct this manually and propose again." ; exit 1)
+
+
+
 # The index here gives an approximate ordering (because it isn't
 # atomic on the remove status). That's good enough for now.
 INDEX=$(git branch -r | \
@@ -39,7 +45,7 @@ git config user.email | grep "\-at\-" && \
       exit 1)
 EMAIL=$(git config user.email | sed -s 's/@/-at-/g')
 REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH/$EMAIL"
-git push origin "$PROPOSED_BRANCH:$REMOTE_BRANCH"
+git push origin "HEAD:$REMOTE_BRANCH"
 
 echo "-----"
 echo "Pushed to: $REMOTE_BRANCH"
