@@ -13,5 +13,4 @@ abort() {
 trap "rm -f $LOCKFILE; exit 1" EXIT
 touch $LOCKFILE
 cd "$1"
-~/repos/git-sling/git-sling.sh "$COMMAND"
-
+~/git/git-sling/git-sling.sh "$COMMAND"
