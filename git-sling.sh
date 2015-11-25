@@ -13,6 +13,10 @@ SOURCE_DIR=$(dirname $BASH_SOURCE)
 
 git remote prune origin
 git fetch
+git checkout staging
+git reset --hard origin/staging
+git merge --ff-only origin/master
+git push
 
 git branch -r | \
     sed -e 's,^ *origin/\(.*\),\1,g' | \
