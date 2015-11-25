@@ -12,17 +12,25 @@
 SLING_PREFIX="sling"
 PROPOSED_PREFIX="$SLING_PREFIX/proposed/"
 
+set -o pipefail
+
 abort_unclean() {
     echo "Working dir is dirty! Use stash or clean."
     exit 1
 }
 
-git describe --dirty --all | (grep -E ".*-dirty$" && abort_unclean || echo "Working directory clean")
+abort_not_rebased() {
+    echo "HEAD is not rebased over origin/staging! Please rebase it before proposing."
+    exit 1
+}
+
+git describe --dirty --all | grep -E ".*-dirty$" && abort_unclean
 PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-echo "Proposing: $PROPOSED_BRANCH"
-
 git fetch
+git branch --merged HEAD -r | grep ' *origin/staging$' || abort_not_rebased
+
+echo "Proposing: $PROPOSED_BRANCH"
 
 echo "Rebasing onto origin/staging"
 
