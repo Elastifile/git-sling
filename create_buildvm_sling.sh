@@ -13,7 +13,7 @@ function clone_git_sling_repo() {
 function configure_cron() {
 
   crontab -r
-  crontab -l | { cat; echo "* * * * * ssh-agent ~/git/git-sling/sling-build-cron.sh"; } | crontab -
+  crontab -l | { cat; echo "* * * * * ssh-agent /home/build/git/git-sling/sling-build-cron.sh"; } | crontab -
 
 }
 
@@ -21,7 +21,7 @@ function configure_mstp() {
 
   user="elasti-prepush@elastifile.com"
   echo -n "Please provide gmail password for user $user: "
-  read password
+  read -s password
   sudo yum -y install msmtp
   cat << EOF | sudo tee /opt/msmtp.conf >/dev/null
 defaults
