@@ -2,6 +2,7 @@
 WORKDIR="$1"
 COMMAND="$2"
 LOCKFILE="$HOME/sling.lock"
+SCRIPT_DIR=$(dirname $(readlink -f $0))
 
 abort() {
    echo "Aborting."
@@ -13,4 +14,4 @@ abort() {
 trap "rm -f $LOCKFILE; exit 1" EXIT
 touch $LOCKFILE
 cd "$1"
-~/git/git-sling/git-sling.sh "$COMMAND"
+$SCRIPT_DIR/git-sling.sh "$COMMAND"
