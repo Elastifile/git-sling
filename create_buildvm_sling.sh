@@ -48,6 +48,8 @@ function add_tmpfs_fstab() {
 
   sudo sed -i /\\/mnt\\/tmpfs/d /etc/fstab
   echo "tmpfs /mnt/tmpfs tmpfs defaults,noatime,nosuid,nodev,mode=1777,size=4G 0" | sudo tee --append /etc/fstab >/dev/null
+  sudo mkdir -p /mnt/tmpfs
+  sudo mount -a
 
 }
 
