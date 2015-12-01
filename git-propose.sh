@@ -11,6 +11,7 @@
 #
 SLING_PREFIX="sling"
 PROPOSED_PREFIX="$SLING_PREFIX/proposed/"
+STAGING="staging"
 
 set -o pipefail
 
@@ -20,7 +21,7 @@ abort_unclean() {
 }
 
 abort_not_rebased() {
-    echo "HEAD is not rebased over origin/staging! Please rebase it before proposing."
+    echo "HEAD is not rebased over origin/$STAGING! Please rebase it before proposing."
     exit 1
 }
 
@@ -28,15 +29,9 @@ git describe --dirty --all | grep -E ".*-dirty$" && abort_unclean
 PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 git fetch
-git branch --merged HEAD -r | grep ' *origin/staging$' || abort_not_rebased
+git branch --merged HEAD -r | grep " *origin/$STAGING\$" || abort_not_rebased
 
 echo "Proposing: $PROPOSED_BRANCH"
-
-echo "Rebasing onto origin/staging"
-
-git rebase origin/staging || (echo "Rebase failed, please correct this manually and propose again." ; exit 1)
-
-
 
 # The index here gives an approximate ordering (because it isn't
 # atomic on the remove status). That's good enough for now.
