@@ -50,12 +50,18 @@ create_workdir() {
   sudo chmod 755 /build-workdir
 }
 
+configure_git_user() {
+  git config --global user.name "prepush"
+  git config --global user.email "elasti-prepush@elastifile.com"
+}
+
 main() {
 
   configure_mstp
   clone_git_sling_repo
   configure_cron
   create_workdir
+  configure_git_user
 }
 
 main "$@"
