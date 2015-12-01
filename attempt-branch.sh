@@ -6,8 +6,8 @@ SOURCE_BRANCH_NAME="$3"
 STAGING="staging"
 SLING_PREFIX="sling"
 REJECT_BRANCH_PREFIX="$SLING_PREFIX/rejected/"
-BRANCH_NAME=$(echo "$SOURCE_BRANCH_NAME" | sed -e "s,^$SOURCE_BRANCH_PREFIX,,g")
-
+QUEUED_BRANCH_NAME=$(echo "$SOURCE_BRANCH_NAME" | sed -e "s,^$SOURCE_BRANCH_PREFIX,,g")
+BRANCH_NAME=$(echo "$SOURCE_BRANCH_NAME" | sed -re "s,^$SOURCE_BRANCH_PREFIX[/0-9]*/(.*)/[^/]*,\1,g")
 MSMTP_CONF_FILE="/opt/msmtp.conf"
 
 PROPOSER_EMAIL=$(echo $SOURCE_BRANCH_NAME | \
@@ -35,7 +35,7 @@ send_email() {
     BODY_FILE=$(mktemp)
     echo "Sending email to $RECEIPIENTS: $MESSAGE"
     echo "To: $RECEIPIENTS"          > $BODY_FILE
-    echo "Subject: [sling] $BRANCH_NAME: $MESSAGE">> $BODY_FILE
+    echo "Subject: [sling] $QUEUED_BRANCH_NAME: $MESSAGE">> $BODY_FILE
     echo                            >> $BODY_FILE
     echo "$MESSAGE"                 >> $BODY_FILE
     echo                            >> $BODY_FILE
@@ -66,8 +66,8 @@ abort() {
 reject() {
     send_email "Rejecting"
     git fetch && git remote prune origin || echo "Fetch/prune failed: ignoring."
-    (git checkout -b "${REJECT_BRANCH_PREFIX}${BRANCH_NAME}" && \
-            git push -u origin "${REJECT_BRANCH_PREFIX}${BRANCH_NAME}") \
+    (git checkout -b "${REJECT_BRANCH_PREFIX}${QUEUED_BRANCH_NAME}" && \
+            git push -u origin "${REJECT_BRANCH_PREFIX}${QUEUED_BRANCH_NAME}") \
         || echo "Failed to create 'reject' branch - already exists?"
     git push --delete origin "${SOURCE_BRANCH_NAME}"
     abort
@@ -91,12 +91,15 @@ git reset --hard origin/staging
 git merge origin/master --ff-only
 git push
 
-git checkout $SOURCE_BRANCH_NAME
+git branch -D $BRANCH_NAME || true
+git checkout -b $BRANCH_NAME
+git reset --hard origin/$SOURCE_BRANCH_NAME
 
 trap "rebase_failed" EXIT
 git rebase origin/staging
 git checkout staging
-git merge --no-ff $SOURCE_BRANCH_NAME
+git merge --no-ff $BRANCH_NAME
+git commit --amend -s --author="$PROPOSER_EMAIL" -C HEAD
 
 trap "reject" EXIT
 
