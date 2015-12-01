@@ -19,6 +19,16 @@ MSMTP="msmtp -C $MSMTP_CONF_FILE $PROPOSER_EMAIL"
 
 LOG_FILENAME=$(mktemp)
 
+# Redirect stdout/stderr to logfile, taken from: http://stackoverflow.com/questions/637827/redirect-stderr-and-stdout-in-a-bash-script
+# Close STDOUT file descriptor
+exec 1<&-
+# Close STDERR FD
+exec 2<&-
+# Open STDOUT as $LOG_FILE file for read and write.
+exec 1<>$LOG_FILENAME
+# Redirect STDERR to STDOUT
+exec 2>&1
+
 send_email() {
     MESSAGE="$@"
     RECEIPIENTS="$PROPOSER_EMAIL"
@@ -42,6 +52,7 @@ send_email() {
 }
 
 abort() {
+    send_email "[sling] Aborted: $BRANCH_NAME"
     # Go back to staging otherwise branch -d might fail.
     git reset --hard
     git checkout staging
@@ -49,8 +60,11 @@ abort() {
     git branch -D "${SOURCE_BRANCH_NAME}" || echo "delete local branch failed, ignoring"
     exit 1
 }
+
+
+
 reject() {
-    send_email "rejecting: $BRANCH_NAME"
+    send_email "[sling] Rejecting: $BRANCH_NAME"
     (git checkout -b "${REJECT_BRANCH_PREFIX}${BRANCH_NAME}" && \
             git push -u origin "${REJECT_BRANCH_PREFIX}${BRANCH_NAME}") \
         || echo "Failed to create 'reject' branch - already exists?"
@@ -59,9 +73,8 @@ reject() {
 }
 
 rebase_failed() {
+    send_email "[sling] Rebase failed: $BRANCH_NAME"
     git rebase --abort
-    send_email "SLING: Rebase failed: $BRANCH_NAME"
-    # TODO send email...
     exit 1
 }
 
@@ -70,7 +83,7 @@ trap "abort" EXIT
 git fetch
 git reset --hard
 
-send_email "SLING: Attempting to merge: $BRANCH_NAME"
+send_email "[sling] Attempting to merge: $BRANCH_NAME"
 
 git checkout staging
 git reset --hard origin/staging
@@ -79,22 +92,19 @@ git push
 
 git checkout $SOURCE_BRANCH_NAME
 
-trap "reject" EXIT
-
-git rebase origin/staging || rebase_failed
+trap "rebase_failed" EXIT
+git rebase origin/staging
 git checkout staging
 git merge --no-ff $SOURCE_BRANCH_NAME
 
+trap "reject" EXIT
 
-$COMMAND &> $LOG_FILENAME
+$COMMAND
 
 trap "abort" EXIT
 
-send_email "SLING: Successfully merged branch $BRANCH_NAME"
-
 echo "Pushing updated staging."
 git push
-
 
 echo "Updating master."
 git fetch
@@ -106,4 +116,8 @@ git push
 echo "Deleting branch ${SOURCE_BRANCH_NAME}"
 
 git push --delete origin "${SOURCE_BRANCH_NAME}"
+
+trap "" EXIT
+
+send_email "[sling] Successfully merged branch $BRANCH_NAME"
 
