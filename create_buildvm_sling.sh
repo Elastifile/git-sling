@@ -28,7 +28,7 @@ defaults
 tls on
 tls_starttls on
 tls_trust_file /etc/pki/tls/certs/ca-bundle.crt
- 
+
 account default
 host smtp.gmail.com
 port 587
@@ -44,13 +44,10 @@ EOF
 
 }
 
-function add_tmpfs_fstab() {
-
-  sudo sed -i /\\/mnt\\/tmpfs/d /etc/fstab
-  echo "tmpfs /mnt/tmpfs tmpfs defaults,noatime,nosuid,nodev,mode=1777,size=4G 0" | sudo tee --append /etc/fstab >/dev/null
-  sudo mkdir -p /mnt/tmpfs
-  sudo mount -a
-
+create_workdir() {
+  sudo mkdir -p /build-workdir
+  sudo chown build:rnd /build-workdir
+  sudo chmod 755 /build-workdir
 }
 
 main() {
@@ -58,8 +55,7 @@ main() {
   configure_mstp
   clone_git_sling_repo
   configure_cron
-  add_tmpfs_fstab
-
+  create_workdir
 }
 
 main "$@"
