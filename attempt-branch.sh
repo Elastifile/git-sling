@@ -52,7 +52,7 @@ send_email() {
 }
 
 abort() {
-    send_email "[sling] Aborted: $BRANCH_NAME"
+    send_email "Aborted: $BRANCH_NAME"
     # Go back to staging otherwise branch -d might fail.
     git reset --hard
     git checkout staging
@@ -64,7 +64,7 @@ abort() {
 
 
 reject() {
-    send_email "[sling] Rejecting: $BRANCH_NAME"
+    send_email "Rejecting: $BRANCH_NAME"
     (git fetch && \
             git remote prune origin && \
             git checkout -b "${REJECT_BRANCH_PREFIX}${BRANCH_NAME}" && \
@@ -75,7 +75,7 @@ reject() {
 }
 
 rebase_failed() {
-    send_email "[sling] Rebase failed: $BRANCH_NAME"
+    send_email "Rebase failed: $BRANCH_NAME"
     git rebase --abort
     exit 1
 }
@@ -85,7 +85,7 @@ trap "abort" EXIT
 git fetch
 git reset --hard
 
-send_email "[sling] Attempting to merge: $BRANCH_NAME"
+send_email "Attempting to merge: $BRANCH_NAME"
 
 git checkout staging
 git reset --hard origin/staging
@@ -121,5 +121,5 @@ git push --delete origin "${SOURCE_BRANCH_NAME}"
 
 trap "" EXIT
 
-send_email "[sling] Successfully merged branch $BRANCH_NAME"
+send_email "Successfully merged branch $BRANCH_NAME"
 
