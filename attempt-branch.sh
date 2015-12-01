@@ -92,6 +92,18 @@ trap "abort" EXIT
 
 send_email "SLING: Successfully merged branch $BRANCH_NAME"
 
+echo "Pushing updated staging."
 git push
+
+
+echo "Updating master."
+git fetch
+git checkout master
+git reset --hard origin/master
+git merge --ff-only origin/staging
+git push
+
+echo "Deleting branch ${SOURCE_BRANCH_NAME}"
+
 git push --delete origin "${SOURCE_BRANCH_NAME}"
 
