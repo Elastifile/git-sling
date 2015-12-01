@@ -65,9 +65,8 @@ abort() {
 
 reject() {
     send_email "Rejecting"
-    (git fetch && \
-            git remote prune origin && \
-            git checkout -b "${REJECT_BRANCH_PREFIX}${BRANCH_NAME}" && \
+    git fetch && git remote prune origin || echo "Fetch/prune failed: ignoring."
+    (git checkout -b "${REJECT_BRANCH_PREFIX}${BRANCH_NAME}" && \
             git push -u origin "${REJECT_BRANCH_PREFIX}${BRANCH_NAME}") \
         || echo "Failed to create 'reject' branch - already exists?"
     git push --delete origin "${SOURCE_BRANCH_NAME}"
