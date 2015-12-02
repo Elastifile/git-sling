@@ -12,6 +12,7 @@
 SLING_PREFIX="sling"
 PROPOSED_PREFIX="$SLING_PREFIX/proposed/"
 STAGING="staging"
+SCRIPT_DIR=$(dirname $(realpath $BASH_SOURCE))
 
 set -o pipefail
 
@@ -38,7 +39,7 @@ echo "Proposing: $PROPOSED_BRANCH"
 INDEX=$(git branch -r | \
                (grep -E "$SLING_PREFIX.*/[0-9]+" \
                        || echo 0) | \
-               sed -r "s,.*$SLING_PREFIX.*/([0-9]+).*,\1,g" | \
+               ${SCRIPT_DIR}/sed.sh -r "s,.*$SLING_PREFIX.*/([0-9]+).*,\1,g" | \
                sort -g | \
                tail -1)
 NEXT_INDEX=$(($INDEX + 1))
@@ -46,7 +47,7 @@ git config user.email | grep "\-at\-" && \
     ( echo "your email contains '-at-' /";
       echo " we don't support    that!";
       exit 1)
-EMAIL=$(git config user.email | sed -s 's/@/-at-/g')
+EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
 REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH/$EMAIL"
 git push origin "HEAD:$REMOTE_BRANCH"
 

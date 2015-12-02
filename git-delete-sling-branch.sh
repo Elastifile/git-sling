@@ -10,11 +10,12 @@ fi
 PREFIX="$1"
 BRANCH="$2"
 PATTERN="sling/$PREFIX/.*$BRANCH.*"
+SCRIPT_DIR=$(dirname $(realpath $BASH_SOURCE))
 printf "Fetching..."
 git fetch -q
 printf "\rPruning..."
 git remote prune origin
 echo -e "\rSearching for branches to delete by pattern: \"$PATTERN\"..."
 git branch -r | grep sling | grep -o "$PATTERN" \
-    | xargs -r -n1 --interactive git push --delete origin
+    | ${SCRIPT_DIR}/xargs.sh -r -n1 --interactive git push --delete origin
 echo "Done."
