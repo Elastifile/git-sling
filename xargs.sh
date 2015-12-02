@@ -3,5 +3,5 @@
 if [ `uname` == "Darwin" ]; then
     gxargs "$@"
 else
-    xarsg "$@"
+    xargs "$@"
 fi
