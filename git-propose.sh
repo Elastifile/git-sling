@@ -9,10 +9,10 @@
 # This will create a new remote branch sling/proposed/N/my_branch,
 # where N is the order in the queue
 #
-SLING_PREFIX="sling"
-PROPOSED_PREFIX="$SLING_PREFIX/proposed/"
-STAGING="staging"
 SCRIPT_DIR=$(dirname $(realpath $BASH_SOURCE))
+
+source $SCRIPT_DIR/sling-config.sh
+
 
 set -o pipefail
 
