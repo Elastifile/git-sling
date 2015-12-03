@@ -55,6 +55,7 @@ send_email() {
 abort() {
     send_email "Aborted"
     # Go back to staging otherwise branch -d might fail.
+    git rebase --abort || true
     git reset --hard
     git checkout $STAGING
     git reset --hard origin/$STAGING
@@ -105,7 +106,7 @@ git checkout -b $BRANCH_NAME
 git reset --hard origin/$SOURCE_BRANCH_NAME
 
 trap "rebase_failed" EXIT
-git rebase origin/$STAGING
+git rebase -p origin/$STAGING
 git checkout $STAGING
 git merge --no-ff $BRANCH_NAME
 git commit --amend -s --author="$PROPOSER_EMAIL" -C HEAD

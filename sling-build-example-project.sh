@@ -30,7 +30,7 @@ build() {
 
 trap "abort" EXIT
 
-GIT_SEQUENCE_EDITOR=true git rebase -i $BASE_COMMIT \
+GIT_SEQUENCE_EDITOR=true git rebase -p -i $BASE_COMMIT \
                    --exec 'buildsome -j8 buildonly --overwrite && buildsome -j4 --overwrite' \
     || (git rebase --abort ; exit 1)
 
