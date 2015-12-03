@@ -113,7 +113,7 @@ git commit --amend -s --author="$PROPOSER_EMAIL" -C HEAD
 
 trap "reject" EXIT
 
-$COMMAND $BASE_COMMIT $HEAD_COMMIT
+$COMMAND $BASE_COMMIT $HEAD_COMMIT $SCRIPT_DIR
 
 trap "abort" EXIT
 
