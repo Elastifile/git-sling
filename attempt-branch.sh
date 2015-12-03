@@ -85,6 +85,14 @@ trap "abort" EXIT
 git fetch
 git reset --hard
 
+BASE_COMMIT=$(git log -1 --format=%H origin/$STAGING)
+HEAD_COMMIT=$(git log -1 --format=%H origin/$SOURCE_BRANCH_NAME)
+
+echo "Commits:"
+git log --oneline $BASE_COMMIT..$HEAD_COMMIT
+
+echo "----------------------------------------------------------------------"
+
 send_email "Attempting to merge"
 
 git checkout $STAGING
@@ -101,9 +109,6 @@ git rebase origin/$STAGING
 git checkout $STAGING
 git merge --no-ff $BRANCH_NAME
 git commit --amend -s --author="$PROPOSER_EMAIL" -C HEAD
-
-BASE_COMMIT=$(git log -1 --format=%H origin/$STAGING)
-HEAD_COMMIT=$(git log -1 --format=%H HEAD)
 
 trap "reject" EXIT
 
