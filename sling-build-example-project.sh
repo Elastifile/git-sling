@@ -1,6 +1,6 @@
 #!/bin/bash -eux
-BASE_COMMIT="$1"
-HEAD_COMMIT="$2"
+BASE_COMMIT="$(git log --format='%H' -1 $1)"
+HEAD_COMMIT="$(git log --format='%H' -1 $2)"
 WORKDIR_BASE="/tmp/workdir"
 GIT_ROOT=$(git rev-parse --show-toplevel)
 
