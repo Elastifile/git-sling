@@ -1,11 +1,12 @@
 #!/bin/bash -eux
 
+SCRIPT_DIR=$(dirname $(realpath $BASH_SOURCE))
+
+source $SCRIPT_DIR/sling-config.sh
+
 SOURCE_BRANCH_PREFIX="$1"
 COMMAND="$2"
 SOURCE_BRANCH_NAME="$3"
-STAGING="staging"
-SLING_PREFIX="sling"
-REJECT_BRANCH_PREFIX="$SLING_PREFIX/rejected/"
 QUEUED_BRANCH_NAME=$(echo "$SOURCE_BRANCH_NAME" | sed -e "s,^$SOURCE_BRANCH_PREFIX,,g")
 BRANCH_NAME=$(echo "$SOURCE_BRANCH_NAME" | sed -re "s,^$SOURCE_BRANCH_PREFIX[/0-9]*/(.*)/[^/]*,\1,g")
 MSMTP_CONF_FILE="/opt/msmtp.conf"
@@ -55,8 +56,8 @@ abort() {
     send_email "Aborted"
     # Go back to staging otherwise branch -d might fail.
     git reset --hard
-    git checkout staging
-    git reset --hard origin/staging
+    git checkout $STAGING
+    git reset --hard origin/$STAGING
     git branch -D "${SOURCE_BRANCH_NAME}" || echo "delete local branch failed, ignoring"
     exit 1
 }
@@ -86,9 +87,9 @@ git reset --hard
 
 send_email "Attempting to merge"
 
-git checkout staging
-git reset --hard origin/staging
-git merge origin/master --ff-only
+git checkout $STAGING
+git reset --hard origin/$STAGING
+git merge origin/$MASTER --ff-only
 git push
 
 git branch -D $BRANCH_NAME || true
@@ -96,12 +97,12 @@ git checkout -b $BRANCH_NAME
 git reset --hard origin/$SOURCE_BRANCH_NAME
 
 trap "rebase_failed" EXIT
-git rebase origin/staging
-git checkout staging
+git rebase origin/$STAGING
+git checkout $STAGING
 git merge --no-ff $BRANCH_NAME
 git commit --amend -s --author="$PROPOSER_EMAIL" -C HEAD
 
-BASE_COMMIT=$(git log -1 --format=%H origin/staging)
+BASE_COMMIT=$(git log -1 --format=%H origin/$STAGING)
 HEAD_COMMIT=$(git log -1 --format=%H HEAD)
 
 trap "reject" EXIT
@@ -110,14 +111,14 @@ $COMMAND $BASE_COMMIT $HEAD_COMMIT
 
 trap "abort" EXIT
 
-echo "Pushing updated staging."
+echo "Pushing updated $STAGING."
 git push
 
-echo "Updating master."
+echo "Updating $MASTER."
 git fetch
-git checkout master
-git reset --hard origin/master
-git merge --ff-only origin/staging
+git checkout $MASTER
+git reset --hard origin/$MASTER
+git merge --ff-only origin/$STAGING
 git push
 
 echo "Deleting branch ${SOURCE_BRANCH_NAME}"

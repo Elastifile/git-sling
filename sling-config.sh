@@ -1,0 +1,5 @@
+SLING_PREFIX="sling"
+STAGING="test-staging"
+MASTER="test-master"
+REJECT_BRANCH_PREFIX="$SLING_PREFIX/rejected/"
+PROPOSED_PREFIX="$SLING_PREFIX/proposed/"
