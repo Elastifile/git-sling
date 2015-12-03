@@ -30,11 +30,13 @@ build() {
 
 trap "abort" EXIT
 
+cd $GIT_ROOT
+
 GIT_SEQUENCE_EDITOR=true git rebase -p -i $BASE_COMMIT \
                    --exec 'buildsome -j8 buildonly --overwrite && buildsome -j4 --overwrite' \
     || (git rebase --abort ; exit 1)
 
-# stack_analysis is partially incremental over regular build (only linkage)
+with_workdir "stack_analysis"
 build --with stack_analysis
 ./testing/sanity/run.sh default
 
@@ -43,6 +45,8 @@ build --without optimization
 
 with_workdir "clang"
 buildsome -j16 buildonly --overwrite --with clang
+
+cd $GIT_ROOT
 
 trap "" EXIT
 
