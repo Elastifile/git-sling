@@ -101,9 +101,12 @@ git checkout staging
 git merge --no-ff $BRANCH_NAME
 git commit --amend -s --author="$PROPOSER_EMAIL" -C HEAD
 
+BASE_COMMIT=$(git log -1 --format=%H origin/staging)
+HEAD_COMMIT=$(git log -1 --format=%H HEAD)
+
 trap "reject" EXIT
 
-$COMMAND
+$COMMAND $BASE_COMMIT $HEAD_COMMIT
 
 trap "abort" EXIT
 
