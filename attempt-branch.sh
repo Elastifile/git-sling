@@ -58,7 +58,7 @@ abort() {
     git rebase --abort || true
     git reset --hard
     git checkout $STAGING
-    git reset --hard origin/$STAGING
+    git reset --hard origin/$MASTER
     git branch -D "${SOURCE_BRANCH_NAME}" || echo "delete local branch failed, ignoring"
     exit 1
 }
@@ -125,7 +125,7 @@ git fetch
 git checkout $MASTER
 git reset --hard origin/$MASTER
 git merge --ff-only origin/$STAGING
-git push
+git push -u origin $MASTER
 
 echo "Deleting branch ${SOURCE_BRANCH_NAME}"
 
