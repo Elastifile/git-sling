@@ -53,13 +53,14 @@ send_email() {
 }
 
 abort() {
-    send_email "Aborted"
+    echo "Aborting..."
     # Go back to staging otherwise branch -d might fail.
     git rebase --abort || true
     git reset --hard
     git checkout $STAGING
     git reset --hard origin/$MASTER
     git branch -D "${SOURCE_BRANCH_NAME}" || echo "delete local branch failed, ignoring"
+    send_email "Aborted"
     exit 1
 }
 
