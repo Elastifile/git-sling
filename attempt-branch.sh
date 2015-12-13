@@ -82,6 +82,11 @@ rebase_failed() {
     exit 1
 }
 
+is_merge() {
+    COMMIT="$1"
+    git log -1 --format="%p" $COMMIT | grep ' '
+}
+
 trap "abort" EXIT
 
 git fetch
@@ -109,8 +114,14 @@ git reset --hard origin/$SOURCE_BRANCH_NAME
 trap "rebase_failed" EXIT
 git rebase -p origin/$STAGING
 git checkout $STAGING
-git merge --no-ff $BRANCH_NAME
-git commit --amend -s --author="$PROPOSER_EMAIL" -C HEAD
+
+if is_merge $BRANCH_NAME
+then
+    git merge --ff-only $BRANCH_NAME
+else
+    git merge --no-ff $BRANCH_NAME
+    git commit --amend -s --author="$PROPOSER_EMAIL" -C HEAD
+fi
 
 trap "reject" EXIT
 
