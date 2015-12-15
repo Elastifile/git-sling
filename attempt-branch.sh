@@ -130,15 +130,18 @@ $COMMAND $BASE_COMMIT $HEAD_COMMIT $SCRIPT_DIR
 
 trap "abort" EXIT
 
-echo "Pushing updated $STAGING."
-git push
-
 echo "Updating $MASTER."
 git fetch
 git checkout $MASTER
 git reset --hard origin/$MASTER
-git merge --ff-only origin/$STAGING
+git merge --ff-only $STAGING
 git push -u origin $MASTER
+
+echo "Pushing updated $STAGING."
+git checkout $STAGING
+# Should do nothing, but just in case:
+git merge --ff-only $MASTER
+git push
 
 echo "Deleting branch ${SOURCE_BRANCH_NAME}"
 
