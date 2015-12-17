@@ -36,9 +36,11 @@ send_email() {
     BODY_FILE=$(mktemp)
     echo "Sending email to $RECEIPIENTS: $MESSAGE"
     echo "To: $RECEIPIENTS"          > $BODY_FILE
-    echo "Subject: [sling] $QUEUED_BRANCH_NAME: $MESSAGE">> $BODY_FILE
+    echo "Subject: [sling] $BRANCH_NAME: $MESSAGE">> $BODY_FILE
     echo                            >> $BODY_FILE
     echo "$MESSAGE"                 >> $BODY_FILE
+    echo                            >> $BODY_FILE
+    echo "Branch: $BRANCH_NAME (full name: $QUEUED_BRANCH_NAME)" >> $BODY_FILE
     echo                            >> $BODY_FILE
     echo "------------------------" >> $BODY_FILE
     echo "Tail of log: "            >> $BODY_FILE
