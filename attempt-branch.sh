@@ -85,8 +85,20 @@ rebase_failed() {
 }
 
 is_merge() {
-    COMMIT="$1"
-    git log -1 --format="%p" $COMMIT | grep ' '
+   COMMIT="$1"
+   git log -1 --format="%p" $COMMIT | grep ' '
+}
+
+has_single_commit() {
+    BASE="$1"
+    HEAD="$2"
+    [ $(git log --oneline "$BASE..$HEAD" | wc -l) -eq 1 ]
+}
+
+should_ff_only() {
+    BASE="$1"
+    HEAD="$2"
+    is_merge "$HEAD" || has_single_commit "$BASE" "$HEAD"
 }
 
 trap "abort" EXIT
@@ -116,7 +128,7 @@ trap "rebase_failed" EXIT
 git rebase -p origin/$STAGING
 git checkout $STAGING
 
-if is_merge $BRANCH_NAME
+if should_ff_only origin/$STAGING $BRANCH_NAME
 then
     git merge --ff-only $BRANCH_NAME
 else
