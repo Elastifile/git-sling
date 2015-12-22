@@ -31,8 +31,9 @@ abort_not_rebased() {
 prompt() {
     echo -n "$1 (y/n) "
     read answer
-    if echo "$answer" | grep -iq "^y" ;then
-        echo "Accepted."
+    if echo "$answer" | grep -iq "^y" ;
+    then
+        echo ""
     else
         echo "Aborted"
         exit 1
@@ -77,4 +78,4 @@ git push origin "HEAD:$REMOTE_BRANCH"
 echo
 echo "Pushed to: $REMOTE_BRANCH"
 echo
-echo "To unpropose, use: git push --delete origin $REMOTE_BRANCH"
+echo "To unpropose, use: git unpropose $PROPOSED_BRANCH"
