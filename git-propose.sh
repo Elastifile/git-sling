@@ -17,12 +17,14 @@ source $SCRIPT_DIR/sling-config.sh
 set -o pipefail
 
 abort_unclean() {
-    echo "Working dir is dirty! Use stash or clean."
+    echo
+    echo "ERROR: Working dir is dirty! Use stash or clean."
     exit 1
 }
 
 abort_not_rebased() {
-    echo "HEAD is not rebased over origin/$STAGING! Please rebase it before proposing."
+    echo
+    echo "ERROR: HEAD is not rebased over origin/$STAGING! Please rebase it before proposing."
     exit 1
 }
 
