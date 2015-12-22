@@ -26,13 +26,23 @@ abort_not_rebased() {
     exit 1
 }
 
+prompt() {
+    echo -n "$1 (y/n) "
+    read answer
+    if echo "$answer" | grep -iq "^y" ;then
+        echo "Accepted."
+    else
+        echo "Aborted"
+        exit 1
+    fi
+}
+
 git describe --dirty --all | grep -E ".*-dirty$" && abort_unclean
 PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
+echo "Fetching..."
 git fetch
-git branch --merged HEAD -r | grep " *origin/$STAGING\$" || abort_not_rebased
-
-echo "Proposing: $PROPOSED_BRANCH"
+git branch --merged HEAD -r | grep " *origin/$STAGING\$"  > /dev/null || abort_not_rebased
 
 # The index here gives an approximate ordering (because it isn't
 # atomic on the remove status). That's good enough for now.
@@ -49,9 +59,20 @@ git config user.email | grep "\-at\-" && \
       exit 1)
 EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
 REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH/$EMAIL"
+
+echo "Proposing: $PROPOSED_BRANCH"
+echo "Commits:"
+echo
+
+git log --oneline origin/$STAGING..HEAD | cat
+
+echo
+
+prompt "Are these the commits you want to propose for master?"
+
 git push origin "HEAD:$REMOTE_BRANCH"
 
-echo "-----"
+echo
 echo "Pushed to: $REMOTE_BRANCH"
-echo "-----"
+echo
 echo "To unpropose, use: git push --delete origin $REMOTE_BRANCH"
