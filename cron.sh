@@ -13,5 +13,6 @@ abort() {
 
 trap "rm -f $LOCKFILE; exit 1" EXIT
 touch $LOCKFILE
-cd "$1"
+# the script didn't fail on this cd failing!!!!
+cd "$WORKDIR"
 $SCRIPT_DIR/git-sling.sh "$COMMAND"
