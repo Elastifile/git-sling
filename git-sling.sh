@@ -7,20 +7,19 @@
 # a format: sling/proposed/N/branch_name)
 #
 COMMAND="$1"
-SLING_PREFIX="sling"
-SOURCE_BRANCH_PREFIX="$SLING_PREFIX/proposed/"
-SOURCE_DIR=$(dirname $BASH_SOURCE)
+SCRIPT_DIR=$(dirname $(realpath $BASH_SOURCE))
+source $SCRIPT_DIR/sling-config.sh
 
 git remote prune origin
 git fetch
-git checkout staging
-git reset --hard origin/staging
-git merge --ff-only origin/master
+git checkout $STAGING
+git reset --hard origin/$STAGING
+git merge --ff-only origin/$MASTER
 git push
 
 git branch -r | \
     sed -e 's,^ *origin/\(.*\),\1,g' | \
-    grep "^$SOURCE_BRANCH_PREFIX.*" | \
+    grep "^$PROPOSED_PREFIX.*" | \
     sort -g -t '/' | \
-    xargs -r -n1  -t $SOURCE_DIR/attempt-branch.sh $SOURCE_BRANCH_PREFIX "$COMMAND"
+    xargs -r -n1  -t $SCRIPT_DIR/attempt-branch.sh $PROPOSED_PREFIX "$COMMAND"
 
