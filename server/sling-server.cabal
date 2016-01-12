@@ -1,0 +1,56 @@
+name:                sling-server
+version:             0.1.0.0
+synopsis:            Initial project template from stack
+description:         Please see README.md
+homepage:            http://github.com/githubuser/sling-server#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Author name here
+maintainer:          example@example.com
+copyright:           2010 Author Here
+category:            Web
+build-type:          Simple
+-- extra-source-files:
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Sling.Lib, Sling.Git, Sling.Proposal
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
+  build-depends:       base >= 4.7 && < 5
+                     , either
+                     , text >= 1.2.1.3
+                     , transformers >= 0.4.2.0
+                     , turtle >= 1.2.4
+  default-language:    Haskell2010
+
+executable sling-server-exe
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
+  build-depends:       base
+                     , either
+                     , sling-server
+                     , text >= 1.2.1.3
+                     , transformers >= 0.4.2.0
+                     , turtle >= 1.2.4
+  default-language:    Haskell2010
+
+test-suite sling-server-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  build-depends:       base
+                     , either
+                     , sling-server
+                     , text >= 1.2.1.3
+                     , transformers >= 0.4.2.0
+                     , turtle >= 1.2.4
+                     , derive
+                     , QuickCheck
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N  -Wall
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/githubuser/sling-server
