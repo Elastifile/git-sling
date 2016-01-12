@@ -1,0 +1,10 @@
+/dist/
+/.stack-work/
+/cbits/fs_override.so
+/.cabal-sandbox
+/cabal.sandbox.config
+/TAGS
+*.hi
+*.o
+*.i_hi
+*.i_o
