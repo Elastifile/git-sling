@@ -28,12 +28,12 @@ emailPat sep = do
 
 data Proposal
     = Proposal
-      { proposalEmail :: Email
-      , proposalName :: NonEmptyText
+      { proposalEmail      :: Email
+      , proposalName       :: NonEmptyText
       , proposalBranchBase :: Git.Ref
       , proposalBranchHead :: Git.Ref
       , proposalQueueIndex :: NatInt
-      , proposalStatus :: ProposalStatus
+      , proposalStatus     :: ProposalStatus
       }
       deriving (Show, Eq)
 
