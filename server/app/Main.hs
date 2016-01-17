@@ -146,7 +146,8 @@ attemptBranch branch proposal = do
 
     liftIO $ putStrLn "Deleting proposal branch..."
     Git.deleteLocalBranch pBranchName
-    Git.deleteRemoteBranch origin pBranchName
+    Git.deleteRemoteBranch origin pBranchName & ignoreError
+    Git.deleteBranch branch
 
     liftIO $ putStrLn . T.unpack $ "Finished handling proposal " <> formatProposal proposal
 
