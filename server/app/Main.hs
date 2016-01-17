@@ -14,6 +14,7 @@ import           Sling.Lib (eview, abort, runEShell, EShell, notSpace, singleMat
 import           Sling.Git (Remote(..), Branch(..), Ref(..), branchFullName, branchName, BranchName, mkBranchName, fromBranchName)
 import qualified Sling.Git as Git
 import Sling.Proposal
+import Sling.Lib (procsL')
 
 import qualified Data.List as List
 import           Data.Monoid ((<>), mempty)
@@ -33,6 +34,9 @@ import           Data.Monoid ((<>), mempty)
 --     xargs -r -n1  -t $SOURCE_DIR/attempt-branch.sh $SOURCE_BRANCH_PREFIX "$COMMAND"
 
 
+runPrepush :: Ref -> Ref -> EShell [Text]
+runPrepush baseR headR =
+    procsL' "bash" ["./tools/prepush.sh", Git.refName baseR, Git.refName headR]
 
 staging :: BranchName
 staging = "staging"
@@ -94,6 +98,7 @@ attemptBranch proposal = do
     rebasedHead <- Git.currentRef
 
     Git.checkout (LocalBranch staging)
+    finalBase <- Git.currentRef
     isMerge <- Git.isMergeCommit rebasedHead
     let mergeFF =
             if isMerge || (length commits == 1)
@@ -104,8 +109,8 @@ attemptBranch proposal = do
 
     finalHead <- Git.currentRef
 
-    -- TODO run the script
-    --
+    -- DO IT!
+    runPrepush finalBase finalHead
 
     liftIO $ putStrLn "Updating master..."
     Git.fetch
