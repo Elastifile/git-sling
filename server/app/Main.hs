@@ -130,7 +130,8 @@ attemptBranch branch proposal = do
             then Git.MergeFFOnly
             else Git.MergeNoFF
     Git.merge mergeFF localProposalBranch
-    Git.commitAmend (proposalEmail proposal) Git.RefHead
+    when (mergeFF == Git.MergeNoFF) $
+        Git.commitAmend (proposalEmail proposal) Git.RefHead
 
     finalHead <- Git.currentRef
 
