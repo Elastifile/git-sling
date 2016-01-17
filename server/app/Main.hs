@@ -153,16 +153,13 @@ attemptBranch branch proposal = do
 
 main :: IO ()
 main = runEShell $ do
-    -- liftIO $ putStr "Fetching..."
-    -- gitFetch
-    -- liftIO $ putStrLn "Done."
-    eview Git.status
+    liftIO $ putStr "Fetching..."
+    Git.fetch
+    liftIO $ putStrLn "Done."
     remoteBranches <- Git.remoteBranches
     let verifyRemoteBranch rb =
             when (not $ elem rb remoteBranches)
             $ abort $ "No remote branch: " <> T.pack (show rb)
-
-    forM_ remoteBranches (liftIO . putStrLn . T.unpack . branchFullName)
 
     let proposedBranches =
             List.sort
