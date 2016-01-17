@@ -4,17 +4,18 @@
 module Main where
 
 import           Control.Monad (when, forM_)
+import           Control.Monad.Error (MonadError(..))
 import           Control.Monad.IO.Class (liftIO)
 import           Data.Maybe (catMaybes)
 import           Data.Text (Text)
 import qualified Data.Text as T
 
-import Turtle ((&))
+import           Turtle ((&), ExitCode)
 import           Sling.Lib (eview, abort, runEShell, EShell, notSpace, singleMatch, ignoreError, NonEmptyText, nonEmptyText, fromNonEmptyText)
 import           Sling.Git (Remote(..), Branch(..), Ref(..), branchFullName, branchName, BranchName, mkBranchName, fromBranchName)
 import qualified Sling.Git as Git
-import Sling.Proposal
-import Sling.Lib (procsL')
+import           Sling.Proposal
+import           Sling.Lib (eprocsL)
 
 import qualified Data.List as List
 import           Data.Monoid ((<>), mempty)
@@ -34,9 +35,11 @@ import           Data.Monoid ((<>), mempty)
 --     xargs -r -n1  -t $SOURCE_DIR/attempt-branch.sh $SOURCE_BRANCH_PREFIX "$COMMAND"
 
 
-runPrepush :: Ref -> Ref -> EShell [Text]
-runPrepush baseR headR =
-    procsL' "bash" ["./tools/prepush.sh", Git.refName baseR, Git.refName headR]
+runPrepush :: Ref -> Ref -> EShell ()
+runPrepush baseR headR = do
+    output <- eprocsL "./tools/prepush.sh" [Git.refName baseR, Git.refName headR]
+    -- TODO log it
+    return ()
 
 staging :: BranchName
 staging = "staging"
@@ -47,28 +50,29 @@ master = "master"
 origin :: Remote
 origin = Remote "origin"
 
-abortAttempt :: Proposal -> Text -> EShell ()
-abortAttempt proposal msg = do
-    liftIO $ putStrLn . T.unpack $ "ABORT " <> formatProposal proposal <> " because: " <> msg
+abortAttempt :: ExitCode -> EShell ()
+abortAttempt err = do
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
     Git.checkout (LocalBranch staging)
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin master)
-    Git.deleteBranch (LocalBranch . mkBranchName $ formatProposal proposal) & ignoreError
+    abort "Aborted"
 
-rejectProposal :: Proposal -> Text -> EShell ()
-rejectProposal proposal msg = do
+
+rejectProposal :: Proposal -> Text -> ExitCode -> EShell ()
+rejectProposal proposal msg err = do
     let rejectedProposal = proposal { proposalStatus = ProposalRejected }
         rejectBranchName = formatProposal rejectedProposal
         origBranchName = formatProposal proposal
-    liftIO $ putStrLn . T.unpack $ "REJECT " <> origBranchName <> " because: " <> msg
+    liftIO $ putStrLn . T.unpack $ "REJECT " <> origBranchName <> " because: " <> msg <> " failed, exit code = " <> (T.pack $ show err)
     Git.fetch & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
     Git.deleteBranch (LocalBranch $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
     _ <- Git.createLocalBranch (mkBranchName rejectBranchName) RefHead
     _ <- Git.createRemoteTrackingBranch origin $ mkBranchName rejectBranchName
+    Git.deleteBranch (LocalBranch . mkBranchName $ formatProposal proposal) & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
-
+    abort "Rejected"
 
 attemptBranch :: Proposal -> EShell ()
 attemptBranch proposal = do
@@ -95,6 +99,8 @@ attemptBranch proposal = do
 
     -- Rebase over staging
     Git.rebase (proposalBranchBase proposal) remoteStaging
+        `catchError` (rejectProposal proposal "Rebase failed")
+
     rebasedHead <- Git.currentRef
 
     Git.checkout (LocalBranch staging)
@@ -102,7 +108,7 @@ attemptBranch proposal = do
     isMerge <- Git.isMergeCommit rebasedHead
     let mergeFF =
             if isMerge || (length commits == 1)
-            then  Git.MergeFFOnly
+            then Git.MergeFFOnly
             else Git.MergeNoFF
     Git.merge mergeFF localProposalBranch
     Git.commitAmend (proposalEmail proposal) Git.RefHead
@@ -111,6 +117,7 @@ attemptBranch proposal = do
 
     -- DO IT!
     runPrepush finalBase finalHead
+        `catchError` (rejectProposal proposal "Prepush command failed")
 
     liftIO $ putStrLn "Updating master..."
     Git.fetch
@@ -160,7 +167,7 @@ main = runEShell $ do
             $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ remoteBranchName b))
             $ remoteBranches
 
-    forM_ (catMaybes $ map (parseProposal . branchName) proposedBranches) attemptBranch
+    forM_ (catMaybes $ map (parseProposal . branchName) proposedBranches) (\x -> attemptBranch x `catchError` abortAttempt)
 
 
 

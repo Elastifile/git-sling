@@ -15,7 +15,7 @@ import Sling.Lib
 git :: [Text] -> EShell [Text]
 git args = do
     liftIO $ putStrLn . T.unpack $ "git " <> T.intercalate " " args
-    procsL' "git" args
+    eprocsL "git" args
 
 data FileStatus = Unmodified | Modified | Added | Deleted | Renamed | Copied | Unmerged
     deriving (Show, Eq, Ord)
