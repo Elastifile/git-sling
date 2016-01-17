@@ -1,24 +1,28 @@
 {-# LANGUAGE OverloadedStrings #-}
--- #!/usr/bin/env stack
--- -- stack --verbosity silent --resolver lts-3.22 --install-ghc runghc --package turtle
 module Main where
 
-import           Control.Monad (when, forM_)
-import           Control.Monad.Error (MonadError(..))
+import           Control.Monad          (forM_, when)
+import           Control.Monad.Error    (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
-import           Data.Maybe (catMaybes)
-import           Data.Text (Text)
-import qualified Data.Text as T
+import           Data.Maybe             (catMaybes)
+import           Data.Text              (Text)
+import qualified Data.Text              as T
 
-import           Turtle ((&), ExitCode)
-import           Sling.Lib (eview, abort, runEShell, EShell, notSpace, singleMatch, ignoreError, NonEmptyText, nonEmptyText, fromNonEmptyText)
-import           Sling.Git (Remote(..), Branch(..), Ref(..), branchFullName, branchName, BranchName, mkBranchName, fromBranchName)
-import qualified Sling.Git as Git
+import           Sling.Git              (Branch (..), BranchName, Ref (..),
+                                         Remote (..), branchFullName,
+                                         branchName, fromBranchName,
+                                         mkBranchName)
+import qualified Sling.Git              as Git
+import           Sling.Lib              (EShell, NonEmptyText, abort, eview,
+                                         fromNonEmptyText, ignoreError,
+                                         nonEmptyText, notSpace, runEShell,
+                                         singleMatch)
+import           Sling.Lib              (eprocsL)
 import           Sling.Proposal
-import           Sling.Lib (eprocsL)
+import           Turtle                 (ExitCode, (&))
 
-import qualified Data.List as List
-import           Data.Monoid ((<>), mempty)
+import qualified Data.List              as List
+import           Data.Monoid            (mempty, (<>))
 
 
 -- git remote prune origin

@@ -1,15 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Sling.Lib where
 
-import           Control.Monad.IO.Class (liftIO)
-import           Control.Monad.Trans.Either (EitherT, left, runEitherT, mapEitherT)
-import           Data.Char (isSpace, isHexDigit)
-import           Data.Monoid ((<>))
-import           Data.String (IsString(..))
-import           Data.Text (Text)
-import qualified Data.Text as T
-import           Turtle (ExitCode(..), Shell, sh, view, empty, procStrict
-                        , Pattern, match, satisfy, some, anyChar)
+import           Control.Monad.IO.Class     (liftIO)
+import           Control.Monad.Trans.Either (EitherT, left, mapEitherT,
+                                             runEitherT)
+import           Data.Char                  (isHexDigit, isSpace)
+import           Data.Monoid                ((<>))
+import           Data.String                (IsString (..))
+import           Data.Text                  (Text)
+import qualified Data.Text                  as T (all, length, lines, null,
+                                                  pack, unpack)
+import           Turtle                     (ExitCode (..), Pattern, Shell,
+                                             anyChar, empty, match, procStrict,
+                                             satisfy, sh, some, view)
 
 -- Turtle stuff
 

@@ -1,16 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Sling.Git where
 
-import Data.Monoid ((<>))
+import           Control.Applicative    ((<|>))
+import           Control.Monad          (join)
 import           Control.Monad.IO.Class (liftIO)
-import Data.String (IsString(..))
-import           Data.Text (Text)
-import qualified Data.Text as T
-import           Data.Maybe (catMaybes)
-import Turtle ((&), Pattern, match, satisfy, some, spaces, space, eof, text, selfless, char, hexDigit, anyChar)
-import Control.Applicative ((<|>))
-import Control.Monad (join)
-import Sling.Lib
+import           Data.Maybe             (catMaybes)
+import           Data.Monoid            ((<>))
+import           Data.String            (IsString (..))
+import           Data.Text              (Text)
+import qualified Data.Text              as T
+import           Sling.Lib
+import           Turtle                 (Pattern, anyChar, char, eof, hexDigit,
+                                         match, satisfy, selfless, some, space,
+                                         spaces, text, (&))
 
 git :: [Text] -> EShell [Text]
 git args = do

@@ -1,20 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
-
 module Sling.Proposal where
 
-import           Data.Text (Text)
-import qualified Data.Text as T
-import           Sling.Lib ( singleMatch, NonEmptyText, fromNonEmptyText, nonEmptyText
-                           , NatInt, natInt, fromNatInt
-                           , Hash, fromHash, hash
-                           , Email(..), formatEmail, formatSepEmail
-                           , someText)
-import qualified Sling.Git as Git
+import           Data.Text           (Text)
+import qualified Data.Text           as T
+import qualified Sling.Git           as Git
+import           Sling.Lib           (Email (..), Hash, NatInt, NonEmptyText,
+                                      formatEmail, formatSepEmail, fromHash,
+                                      fromNatInt, fromNonEmptyText, hash,
+                                      natInt, nonEmptyText, singleMatch,
+                                      someText)
 
-import Turtle (Pattern, match, satisfy, some, text, decimal, alphaNum, oneOf
-              , char, notChar, digit, anyChar, hexDigit)
 import           Control.Applicative ((<|>))
-import           Data.Monoid ((<>))
+import           Data.Monoid         ((<>))
+import           Turtle              (Pattern, alphaNum, anyChar, char, decimal,
+                                      digit, hexDigit, match, notChar, oneOf,
+                                      satisfy, some, text)
 
 data ProposalStatus = ProposalProposed | ProposalRejected
       deriving (Show, Eq, Ord)
