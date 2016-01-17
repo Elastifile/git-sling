@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
@@ -45,21 +46,26 @@ runPrepush baseR headR = do
     -- TODO log it
     return ()
 
-staging :: BranchName
-staging = "staging"
+-- staging :: BranchName
+-- staging = "staging"
 
-master :: BranchName
-master = "master"
+-- master :: BranchName
+-- master = "master"
 
 origin :: Remote
 origin = Remote "origin"
 
-abortAttempt :: ExitCode -> EShell ()
-abortAttempt err = do
+resetLocalOnto :: Proposal -> EShell ()
+resetLocalOnto proposal = do
+    let ontoBranchName = proposalBranchOnto proposal
+    Git.checkout (LocalBranch ontoBranchName)
+    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
+
+abortAttempt :: Proposal -> ExitCode -> EShell ()
+abortAttempt proposal err = do
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
-    Git.checkout (LocalBranch staging)
-    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin master)
+    resetLocalOnto proposal
     abort "Aborted"
 
 
@@ -78,36 +84,45 @@ rejectProposal proposal msg err = do
     Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
     abort "Rejected"
 
-attemptBranch :: Proposal -> EShell ()
-attemptBranch proposal = do
+attemptBranchOrAbort :: Branch -> Proposal -> EShell ()
+attemptBranchOrAbort branch proposal =
+    (attemptBranch branch proposal) `catchError` (abortAttempt proposal)
+
+attemptBranch :: Branch -> Proposal -> EShell ()
+attemptBranch branch proposal = do
     -- cleanup leftover state from previous runs
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
+    resetLocalOnto proposal
 
     liftIO $ putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
-
-    fastForwardStaging
 
     let name = proposalName proposal
         pBranchName = mkBranchName $ fromNonEmptyText name
         localProposalBranch = LocalBranch $ pBranchName
-        remoteStaging = RefBranch $ RemoteBranch origin staging
+        ontoBranchName = proposalBranchOnto proposal
+        remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
 
     Git.deleteBranch localProposalBranch & ignoreError
     _ <- Git.createLocalBranch pBranchName RefHead
-    Git.reset Git.ResetHard (proposalBranchHead proposal)
+    Git.reset Git.ResetHard (RefBranch branch)
 
     liftIO $ putStrLn "Commits: "
-    commits <- Git.log (proposalBranchBase proposal) (proposalBranchHead proposal)
+    commits <- Git.log (proposalBranchBase proposal) (RefBranch branch)
     liftIO $ mapM_ print commits
 
     -- Rebase over staging
-    Git.rebase (proposalBranchBase proposal) remoteStaging
+    Git.rebase (proposalBranchBase proposal) remoteOnto
         `catchError` (rejectProposal proposal "Rebase failed")
+
+    liftIO $ putStrLn "Commits (after rebase): "
+    commitsAfter <- Git.log (proposalBranchBase proposal) (RefBranch branch)
+    liftIO $ mapM_ print commitsAfter
 
     rebasedHead <- Git.currentRef
 
-    Git.checkout (LocalBranch staging)
+    Git.checkout (LocalBranch ontoBranchName)
+    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
     finalBase <- Git.currentRef
     isMerge <- Git.isMergeCommit rebasedHead
     let mergeFF =
@@ -123,32 +138,16 @@ attemptBranch proposal = do
     runPrepush finalBase finalHead
         `catchError` (rejectProposal proposal "Prepush command failed")
 
-    liftIO $ putStrLn "Updating master..."
-    Git.fetch
-    Git.checkout (LocalBranch master)
-    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin master)
-    Git.merge Git.MergeFFOnly (LocalBranch staging)
+    liftIO $ putStrLn . T.unpack $ "Updating: " <> (fromBranchName ontoBranchName)
+    Git.checkout (LocalBranch ontoBranchName) -- in case script moved git
+    -- TODO ensure not dirty
     Git.push -- TODO -u origin master
-
-    liftIO $ putStrLn "Updating staging..."
-    Git.checkout (LocalBranch staging)
-    Git.merge Git.MergeFFOnly (LocalBranch master)
-    Git.push
 
     liftIO $ putStrLn "Deleting proposal branch..."
     Git.deleteLocalBranch pBranchName
     Git.deleteRemoteBranch origin pBranchName
 
     liftIO $ putStrLn . T.unpack $ "Finished handling proposal " <> formatProposal proposal
-
-fastForwardStaging :: EShell ()
-fastForwardStaging = do
-    Git.checkout (LocalBranch master)
-    Git.reset Git.ResetHard (RefBranch (RemoteBranch origin master))
-    Git.checkout (LocalBranch staging)
-    Git.reset Git.ResetHard (RefBranch (RemoteBranch origin staging))
-    Git.merge Git.MergeFFOnly (RemoteBranch origin master)
-    Git.push
 
 main :: IO ()
 main = runEShell $ do
@@ -157,12 +156,9 @@ main = runEShell $ do
     -- liftIO $ putStrLn "Done."
     eview Git.status
     remoteBranches <- Git.remoteBranches
-    let remoteStaging = (RemoteBranch origin staging)
-        verifyRemoteBranch rb =
+    let verifyRemoteBranch rb =
             when (not $ elem rb remoteBranches)
             $ abort $ "No remote branch: " <> T.pack (show rb)
-
-    verifyRemoteBranch remoteStaging
 
     forM_ remoteBranches (liftIO . putStrLn . T.unpack . branchFullName)
 
@@ -171,7 +167,9 @@ main = runEShell $ do
             $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ remoteBranchName b))
             $ remoteBranches
 
-    forM_ (catMaybes $ map (parseProposal . branchName) proposedBranches) (\x -> attemptBranch x `catchError` abortAttempt)
+    forM_ (catMaybes
+           $ map (\branch -> (branch,) <$> parseProposal (branchName branch)) proposedBranches)
+           (uncurry attemptBranchOrAbort)
 
 
 

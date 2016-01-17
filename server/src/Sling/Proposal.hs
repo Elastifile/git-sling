@@ -31,7 +31,7 @@ data Proposal
       { proposalEmail      :: Email
       , proposalName       :: NonEmptyText
       , proposalBranchBase :: Git.Ref
-      , proposalBranchHead :: Git.Ref
+      , proposalBranchOnto :: Git.BranchName
       , proposalQueueIndex :: NatInt
       , proposalStatus     :: ProposalStatus
       }
@@ -51,8 +51,8 @@ formatProposal p = prefix <> suffix
         suffix =
             escape (fromNonEmptyText $ proposalName p) <> "/"
             <> T.pack (show . fromNatInt . proposalQueueIndex $ p) <> "/"
-            <> (formatRef $ proposalBranchBase p) <> "/"
-            <> (formatRef $ proposalBranchHead p) <> "/"
+            <> (formatRef $ proposalBranchBase p) <> "/onto/"
+            <> (escape . Git.fromBranchName $ proposalBranchOnto p) <> "/"
             <> formatSepEmail "-at-" (proposalEmail p)
 
 refPat :: Pattern Git.Ref
@@ -82,11 +82,11 @@ proposalPat = do
     index <- natInt <$> decimal
     _ <- char '/'
     baseRef <- refPat
-    _ <- char '/'
-    headRef <- refPat
+    _ <- text "/onto/"
+    ontoRef <- Git.mkBranchName . unescape <$> someText
     _ <- char '/'
     email <- emailPat "-at-"
-    return $ Proposal email name baseRef headRef index ps
+    return $ Proposal email name baseRef ontoRef index ps
 
 parseProposal :: Text -> Maybe Proposal
 parseProposal = singleMatch proposalPat
