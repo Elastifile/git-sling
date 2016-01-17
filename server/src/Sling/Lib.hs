@@ -11,13 +11,12 @@ import qualified Data.Text as T
 import           Turtle (ExitCode(..), Shell, sh, view, empty, procStrict
                         , Pattern, match, satisfy, some, anyChar)
 
-
 -- Turtle stuff
 
 type EShell a = EitherT ExitCode Shell a
 
-procs' :: Text -> [Text] -> EShell Text
-procs' cmd args = do
+eprocs :: Text -> [Text] -> EShell Text
+eprocs cmd args = do
     (exitCode, t) <- procStrict cmd args empty
     case exitCode of
         ExitSuccess -> pure t
@@ -25,8 +24,8 @@ procs' cmd args = do
             liftIO $ print (cmd, args)
             left exitCode
 
-procsL' :: Text -> [Text] -> EShell [Text]
-procsL' cmd args = T.lines <$> procs' cmd args
+eprocsL :: Text -> [Text] -> EShell [Text]
+eprocsL cmd args = T.lines <$> eprocs cmd args
 
 wrapEither :: (Monad m) => (m a -> m b) -> m (Either e a) -> m (Either e b)
 wrapEither f act = do

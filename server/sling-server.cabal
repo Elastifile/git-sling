@@ -19,6 +19,7 @@ library
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
   build-depends:       base >= 4.7 && < 5
                      , either
+                     , mtl >= 2.2.1
                      , text >= 1.2.1.3
                      , transformers >= 0.4.2.0
                      , turtle >= 1.2.4
@@ -30,6 +31,7 @@ executable sling-server-exe
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
   build-depends:       base
                      , either
+                     , mtl >= 2.2.1
                      , sling-server
                      , text >= 1.2.1.3
                      , transformers >= 0.4.2.0
@@ -40,14 +42,15 @@ test-suite sling-server-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
-  build-depends:       base
+  build-depends:       QuickCheck
+                     , base
+                     , derive
                      , either
+                     , mtl >= 2.2.1
                      , sling-server
                      , text >= 1.2.1.3
                      , transformers >= 0.4.2.0
                      , turtle >= 1.2.4
-                     , derive
-                     , QuickCheck
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N  -Wall
   default-language:    Haskell2010
 
