@@ -23,18 +23,19 @@ data FileStatus = Unmodified | Modified | Added | Deleted | Renamed | Copied | U
     deriving (Show, Eq, Ord)
 
 data IndexStatus
-    = Tracked { trackedStaged :: FileStatus
+    = Tracked { trackedStaged   :: FileStatus
               , trackedUnstaged :: FileStatus }
     | Untracked
     | Ignored
     deriving (Show, Eq, Ord)
 
 data IndexedName = Name { indexedName :: NonEmptyText }
-                 | Rename { indexedOldName :: NonEmptyText, indexedNewName :: NonEmptyText }
+                 | Rename { indexedOldName :: NonEmptyText
+                          , indexedNewName :: NonEmptyText }
     deriving (Show, Eq, Ord)
 
 data GitStatus = GitStatus { statusIndex :: IndexStatus
-                     , statusFileName :: IndexedName }
+                           , statusFileName    :: IndexedName }
     deriving (Show, Eq, Ord)
 
 newtype Remote = Remote { remoteName :: NonEmptyText }
@@ -50,7 +51,8 @@ instance IsString BranchName where
 
 data Branch
     = LocalBranch { localBranchName :: BranchName }
-    | RemoteBranch { remoteBranchRemote :: Remote, remoteBranchName :: BranchName }
+    | RemoteBranch { remoteBranchRemote :: Remote
+                   , remoteBranchName :: BranchName }
     deriving (Show, Eq, Ord)
 
 data Ref = RefBranch Branch | RefHead | RefHash Hash | RefParent Ref NatInt
