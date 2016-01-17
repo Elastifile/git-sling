@@ -42,7 +42,7 @@ import           Data.Monoid            (mempty, (<>))
 
 runPrepush :: Ref -> Ref -> EShell ()
 runPrepush baseR headR = do
-    output <- eprocsL "./tools/prepush.sh" [Git.refName baseR, Git.refName headR]
+    output <- eprocsL "bash" ["./tools/prepush.sh", Git.refName baseR, Git.refName headR]
     -- TODO log it
     return ()
 
