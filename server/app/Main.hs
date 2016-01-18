@@ -25,13 +25,15 @@ import           Turtle                 (ExitCode, (&))
 import qualified Data.List              as List
 import           Data.Monoid            (mempty, (<>))
 import           System.Environment     (getArgs)
+import           System.IO.Temp         (openTempFile)
 
 runPrepush :: [String] -> Ref -> Ref -> EShell ()
 runPrepush cmd baseR headR = do
     let args = T.intercalate " " $ (map T.pack cmd) ++ [Git.refName baseR, Git.refName headR]
-    liftIO $ putStrLn . T.unpack $ "Executing bash with: " <> args
-    output <- eprocsL "bash" ["-c", args]
-    -- TODO log it
+    (name, fd) <- liftIO $ openTempFile "/tmp" "prepush.log"
+    liftIO $ putStrLn . T.unpack $ "Executing bash with: " <> args <> " output goes to: " <> (T.pack name)
+    output <- eprocsL "bash" ["-c", args <> " &>" <> (T.pack name)]
+    -- TODO delete log if successful?
     return ()
 
 origin :: Remote
