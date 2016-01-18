@@ -2,7 +2,7 @@
 set -eu
 SCRIPT_DIR=$(dirname $(readlink -f $0))
 
-source $SOURCE_DIR/sling-config.sh
+source $SCRIPT_DIR/sling-config.sh
 
 cd $SCRIPT_DIR/server
 stack build
