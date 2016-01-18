@@ -80,7 +80,7 @@ git log --oneline $BASE_COMMIT..HEAD | cat
 
 echo
 
-prompt "Are these the commits you want to propose for master?"
+prompt "Are these the commits you want to propose for $ONTO_BRANCH?"
 
 git push origin "HEAD:$REMOTE_BRANCH"
 
