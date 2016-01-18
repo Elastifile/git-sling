@@ -24,10 +24,11 @@ import           Turtle                 (ExitCode, (&))
 
 import qualified Data.List              as List
 import           Data.Monoid            (mempty, (<>))
+import           System.Environment     (getArgs)
 
-runPrepush :: Ref -> Ref -> EShell ()
-runPrepush baseR headR = do
-    output <- eprocsL "bash" ["./tools/prepush.sh", Git.refName baseR, Git.refName headR]
+runPrepush :: [String] -> Ref -> Ref -> EShell ()
+runPrepush cmd baseR headR = do
+    output <- eprocsL "bash" $ (map T.pack cmd) ++ [Git.refName baseR, Git.refName headR]
     -- TODO log it
     return ()
 
@@ -67,12 +68,12 @@ rejectProposal proposal msg err = do
     Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
     abort "Rejected"
 
-attemptBranchOrAbort :: Branch -> Proposal -> EShell ()
-attemptBranchOrAbort branch proposal =
-    (attemptBranch branch proposal) `catchError` (abortAttempt proposal)
+attemptBranchOrAbort :: [String] -> Branch -> Proposal -> EShell ()
+attemptBranchOrAbort cmd branch proposal =
+    (attemptBranch cmd branch proposal) `catchError` (abortAttempt proposal)
 
-attemptBranch :: Branch -> Proposal -> EShell ()
-attemptBranch branch proposal = do
+attemptBranch :: [String] -> Branch -> Proposal -> EShell ()
+attemptBranch cmd branch proposal = do
     -- cleanup leftover state from previous runs
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
@@ -118,7 +119,7 @@ attemptBranch branch proposal = do
     finalHead <- Git.currentRef
 
     -- DO IT!
-    runPrepush finalBase finalHead
+    runPrepush cmd finalBase finalHead
         `catchError` (rejectProposal proposal "Prepush command failed")
 
     liftIO $ putStrLn . T.unpack $ "Updating: " <> (fromBranchName ontoBranchName)
@@ -135,6 +136,7 @@ attemptBranch branch proposal = do
 
 main :: IO ()
 main = runEShell $ do
+    prepushCmd <- liftIO getArgs
     Git.fetch
     remoteBranches <- Git.remoteBranches
     let verifyRemoteBranch rb =
@@ -149,7 +151,7 @@ main = runEShell $ do
 
     forM_ (catMaybes
            $ map (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches))
-           (uncurry attemptBranchOrAbort)
+           (uncurry $ attemptBranchOrAbort prepushCmd)
 
 
 
