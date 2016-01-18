@@ -1,5 +1,5 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections     #-}
 module Main where
 
 import           Control.Monad          (forM_, when)
@@ -25,32 +25,11 @@ import           Turtle                 (ExitCode, (&))
 import qualified Data.List              as List
 import           Data.Monoid            (mempty, (<>))
 
-
--- git remote prune origin
--- git fetch
--- git checkout staging
--- git reset --hard origin/staging
--- git merge --ff-only origin/master
--- git push
-
--- git branch -r | \
---     sed -e 's,^ *origin/\(.*\),\1,g' | \
---     grep "^$SOURCE_BRANCH_PREFIX.*" | \
---     sort -g -t '/' | \
---     xargs -r -n1  -t $SOURCE_DIR/attempt-branch.sh $SOURCE_BRANCH_PREFIX "$COMMAND"
-
-
 runPrepush :: Ref -> Ref -> EShell ()
 runPrepush baseR headR = do
     output <- eprocsL "bash" ["./tools/prepush.sh", Git.refName baseR, Git.refName headR]
     -- TODO log it
     return ()
-
--- staging :: BranchName
--- staging = "staging"
-
--- master :: BranchName
--- master = "master"
 
 origin :: Remote
 origin = Remote "origin"
@@ -155,9 +134,7 @@ attemptBranch branch proposal = do
 
 main :: IO ()
 main = runEShell $ do
-    liftIO $ putStr "Fetching..."
     Git.fetch
-    liftIO $ putStrLn "Done."
     remoteBranches <- Git.remoteBranches
     let verifyRemoteBranch rb =
             when (not $ elem rb remoteBranches)
