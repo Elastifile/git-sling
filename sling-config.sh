@@ -1,5 +1,6 @@
 SLING_PREFIX="sling"
-STAGING="staging"
-MASTER="master"
 REJECT_BRANCH_PREFIX="$SLING_PREFIX/rejected/"
 PROPOSED_PREFIX="$SLING_PREFIX/proposed/"
+
+SERVER_WORKDIR="/build-workdir"
+SERVER_LOCKFILE="$SERVER_WORKDIR/sling.lock"
