@@ -63,6 +63,7 @@ resetLocalOnto proposal = do
 
 abortAttempt :: Proposal -> ExitCode -> EShell ()
 abortAttempt proposal err = do
+    liftIO $ putStrLn "ABORTING..."
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
     resetLocalOnto proposal
@@ -74,10 +75,13 @@ rejectProposal proposal msg err = do
     let rejectedProposal = proposal { proposalStatus = ProposalRejected }
         rejectBranchName = formatProposal rejectedProposal
         origBranchName = formatProposal proposal
-    liftIO $ putStrLn . T.unpack $ "REJECT " <> origBranchName <> " because: " <> msg <> " failed, exit code = " <> (T.pack $ show err)
+    liftIO $ putStrLn . T.unpack $ "REJECT " <> origBranchName <> " because: '" <> msg <> "', exit code = " <> (T.pack $ show err)
     Git.fetch & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
     Git.deleteBranch (LocalBranch $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
+    Git.reset Git.ResetHard RefHead
+    -- We have to be on another branch before deleting stuff, so arbitrarily picking onto
+    Git.checkout (LocalBranch $ proposalBranchOnto proposal)
     _ <- Git.createLocalBranch (mkBranchName rejectBranchName) RefHead
     _ <- Git.createRemoteTrackingBranch origin $ mkBranchName rejectBranchName
     Git.deleteBranch (LocalBranch . mkBranchName $ formatProposal proposal) & ignoreError
