@@ -4,12 +4,14 @@ SCRIPT_DIR=$(dirname $(readlink -f $0))
 
 source $SCRIPT_DIR/sling-config.sh
 
+COMMAND="./tools/prepush.sh"
+
 (
     flock -n 9 || exit 1
 
     cd $SCRIPT_DIR/server
     mkdir -p $SERVER_WORKDIR/.stack
-    ln -s $SERVER_WORKDIR/.stack ~/.stack || echo "linking .stack failed, ignoring."
+    test -L ~/.stack || ln -s $SERVER_WORKDIR/.stack ~/.stack || echo "linking .stack failed, ignoring."
     stack setup
     stack build
     SLING_SERVER=$(stack path --project-root)/$(stack path --dist-dir)/build/sling-server-exe/sling-server-exe
