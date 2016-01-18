@@ -52,7 +52,7 @@ git describe --dirty --all | grep -E ".*-dirty$" && abort_unclean
 PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 echo "Fetching..."
-git fetch
+git fetch -p
 git branch --merged HEAD -r | grep " *origin/$ONTO_BRANCH\$"  > /dev/null || abort_not_rebased
 BASE_COMMIT="$(git log -1 origin/$ONTO_BRANCH --format=%h)"
 
