@@ -143,16 +143,17 @@ push = git ["push"] >> pure ()
 rebaseAbort :: EShell ()
 rebaseAbort = git ["rebase", "--abort"] >> pure ()
 
-remoteBranchPat :: Pattern Branch
+remoteBranchPat :: Pattern (Remote, BranchName)
 remoteBranchPat = do
     r <- Remote . nonEmptyText . T.pack <$> (selfless $ spaces *> some notSpace)
     name <- mkBranchName . T.pack <$> (char '/' *> some notSpace)
     eof
-    return $ RemoteBranch r name
+    return $ (r, name)
 
-remoteBranches :: EShell [Branch]
-remoteBranches = (catMaybes . map (singleMatch remoteBranchPat))
-                 <$> git ["branch", "--list", "-r", "--no-color"]
+remoteBranches :: EShell [(Remote, BranchName)]
+remoteBranches =
+    (catMaybes . map (singleMatch remoteBranchPat))
+    <$> git ["branch", "--list", "-r", "--no-color"]
 
 deleteLocalBranch :: BranchName -> EShell ()
 deleteLocalBranch name = git ["branch", "-D", fromBranchName name] >> pure ()
