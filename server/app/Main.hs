@@ -28,7 +28,9 @@ import           System.Environment     (getArgs)
 
 runPrepush :: [String] -> Ref -> Ref -> EShell ()
 runPrepush cmd baseR headR = do
-    output <- eprocsL "bash" $ (map T.pack cmd) ++ [Git.refName baseR, Git.refName headR]
+    let args = T.intercalate " " $ (map T.pack cmd) ++ [Git.refName baseR, Git.refName headR]
+    liftIO $ putStrLn . T.unpack $ "Executing bash with: " <> args
+    output <- eprocsL "bash" ["-c", args]
     -- TODO log it
     return ()
 
@@ -82,14 +84,14 @@ attemptBranch cmd branch proposal = do
 
     liftIO $ putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
 
-    let name = proposalName proposal
-        pBranchName = name
-        localProposalBranch = LocalBranch $ pBranchName
+    let niceBranchName = mkBranchName $ slingPrefix <> "/work/" <> fromBranchName (proposalName proposal)
+        niceBranch = LocalBranch $ niceBranchName
         ontoBranchName = proposalBranchOnto proposal
         remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
 
-    Git.deleteBranch localProposalBranch & ignoreError
-    _ <- Git.createLocalBranch pBranchName RefHead
+    Git.deleteBranch niceBranch & ignoreError
+    (Git.createLocalBranch niceBranchName RefHead >> pure ()) & ignoreError
+    Git.checkout niceBranch
     Git.reset Git.ResetHard (RefBranch branch)
 
     liftIO $ putStrLn "Commits: "
@@ -112,7 +114,7 @@ attemptBranch cmd branch proposal = do
             if isMerge || (length commits == 1)
             then Git.MergeFFOnly
             else Git.MergeNoFF
-    Git.merge mergeFF localProposalBranch
+    Git.merge mergeFF niceBranch
     when (mergeFF == Git.MergeNoFF) $
         Git.commitAmend (proposalEmail proposal) Git.RefHead
 
@@ -128,15 +130,25 @@ attemptBranch cmd branch proposal = do
     Git.push -- TODO -u origin master
 
     liftIO $ putStrLn "Deleting proposal branch..."
-    Git.deleteLocalBranch pBranchName
-    Git.deleteRemoteBranch origin pBranchName & ignoreError
+    Git.deleteLocalBranch niceBranchName
+    Git.deleteRemoteBranch origin niceBranchName & ignoreError
     Git.deleteBranch branch
 
     liftIO $ putStrLn . T.unpack $ "Finished handling proposal " <> formatProposal proposal
 
+usage :: String
+usage = concat $ List.intersperse "\n" $
+    [ "Usage: sling-server COMMAND"
+    , ""
+    , "where COMMAND is the prepush command to run on each attempted branch."
+    ]
+
 main :: IO ()
 main = runEShell $ do
     prepushCmd <- liftIO getArgs
+    when (null prepushCmd) $ do
+        liftIO $ putStrLn usage
+        abort "No prepush command given!"
     Git.fetch
     remoteBranches <- Git.remoteBranches
     let verifyRemoteBranch rb =

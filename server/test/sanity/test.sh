@@ -58,6 +58,7 @@ add_prepush() {
     echo "adding prepush script."
     mkdir -p $(dirname $prepush)
     echo 'echo "$@"' > $prepush
+    chmod +x $prepush
     logit add $prepush
     # NOTE: couldn't get it to commit with a message that has whitespace :(
     # Shell escaping is fighting against us.
