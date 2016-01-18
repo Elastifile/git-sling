@@ -13,6 +13,29 @@ SCRIPT_DIR=$(dirname $(realpath $BASH_SOURCE))
 
 source $SCRIPT_DIR/sling-config.sh
 
+suggest_upgrade() {
+    upgrade_cmd="cd $SCRIPT_DIR ; git checkout master; git rebase"
+    echo "You're in luck! A new version of sling (git propose) is available."
+    echo "To upgrade, run:"
+    echo $upgrade_cmd
+    echo -n "Should I do this for you? (y/n) "
+    read answer
+    if echo "$answer" | grep -iq "^y" ;
+    then
+        set -x
+        bash -c "$upgrade_cmd"
+        set +x
+        echo "Please re-run your command now."
+        exit 1
+    else
+        echo "Ok, but it may not work."
+    fi
+}
+
+(cd $SCRIPT_DIR \
+        && git log master..origin/master --decorate --oneline | grep master \
+        && suggest_upgrade)
+
 ONTO_BRANCH="$1"
 set -o pipefail
 
