@@ -143,12 +143,12 @@ main = runEShell $ do
             when (not $ elem rb remoteBranches)
             $ abort $ "No remote branch: " <> T.pack (show rb)
 
-    liftIO $ mapM print remoteBranches
     let proposedBranches =
             List.sort
             $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ snd b))
             $ remoteBranches
 
+    liftIO $ mapM print proposedBranches
     forM_ (catMaybes
            $ map (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches))
            (uncurry $ attemptBranchOrAbort prepushCmd)
