@@ -115,7 +115,7 @@ attemptBranch branch proposal = do
     commits <- Git.log (proposalBranchBase proposal) (RefBranch branch)
     liftIO $ mapM_ print commits
 
-    -- Rebase over staging
+    -- Rebase onto target
     Git.rebase (proposalBranchBase proposal) remoteOnto
         `catchError` (rejectProposal proposal "Rebase failed")
 
@@ -123,12 +123,10 @@ attemptBranch branch proposal = do
     commitsAfter <- Git.log (proposalBranchBase proposal) (RefBranch branch)
     liftIO $ mapM_ print commitsAfter
 
-    rebasedHead <- Git.currentRef
-
     Git.checkout (LocalBranch ontoBranchName)
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
     finalBase <- Git.currentRef
-    isMerge <- Git.isMergeCommit rebasedHead
+    isMerge <- Git.isMergeCommit (RefBranch branch)
     let mergeFF =
             if isMerge || (length commits == 1)
             then Git.MergeFFOnly
@@ -165,13 +163,14 @@ main = runEShell $ do
             when (not $ elem rb remoteBranches)
             $ abort $ "No remote branch: " <> T.pack (show rb)
 
+    liftIO $ mapM print remoteBranches
     let proposedBranches =
             List.sort
-            $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ remoteBranchName b))
+            $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ snd b))
             $ remoteBranches
 
     forM_ (catMaybes
-           $ map (\branch -> (branch,) <$> parseProposal (branchName branch)) proposedBranches)
+           $ map (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches))
            (uncurry attemptBranchOrAbort)
 
 
