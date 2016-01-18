@@ -76,6 +76,7 @@ attemptBranch branch proposal = do
     -- cleanup leftover state from previous runs
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
+    Git.fetch
     resetLocalOnto proposal
 
     liftIO $ putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
