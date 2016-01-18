@@ -36,10 +36,24 @@ suggest_upgrade() {
         && git log master..origin/master --decorate --oneline | grep master \
         && suggest_upgrade || true)
 
+show_usage() {
+    echo "Usage: git propose <integration branch on remote>"
+    echo ""
+    echo "For example, to merge to master use:"
+    echo "> git propose master"
+    echo "(Note, you shouldn't add the 'origin/' prefix.)"
+}
+
+if [ "$#" -ne 1 ]; then
+    show_usage
+    exit 1
+fi
+
 ONTO_BRANCH="$1"
 set -o pipefail
 
 abort_bad_name() {
+    show_usage
     echo
     echo "ERROR: Not a valid branch name: $ONTO_BRANCH"
     exit 1
