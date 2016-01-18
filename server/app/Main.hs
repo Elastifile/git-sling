@@ -10,13 +10,14 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as L
 import           Data.Text.Lazy.Encoding (decodeUtf8)
+import qualified Data.ByteString.Lazy as LBS
 import           Sling.Git              (Branch (..), BranchName, Ref (..),
                                          Remote (..), branchFullName,
                                          branchName, fromBranchName,
                                          mkBranchName)
 import qualified Sling.Git as Git
 import           Sling.Lib              (EShell, NonEmptyText, abort, eview,
-                                         fromNonEmptyText, ignoreError, eprocsIn,
+                                         fromNonEmptyText, ignoreError, eprocs, eprocsIn,
                                          nonEmptyText, notSpace, runEShell,
                                          singleMatch)
 import           Sling.Lib (eprocsL, formatEmail)
@@ -27,7 +28,8 @@ import qualified Data.List as List
 import           Data.Monoid (mempty, (<>))
 import           System.Environment (getArgs)
 import           System.IO.Temp (createTempDirectory)
-import           Network.Mail.Mime (simpleMail, Address(..), renderMail', sendmailCustomCaptureOutput)
+import qualified Network.Mail.Mime as Mail
+import           Network.Mail.Mime (Mail)
 
 runPrepush :: FilePath -> [String] -> Ref -> Ref -> EShell ()
 runPrepush logFile cmd baseR headR = do
@@ -46,21 +48,26 @@ resetLocalOnto proposal = do
     Git.checkout (LocalBranch ontoBranchName)
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
 
+addAttachment :: Text -> FilePath -> Text -> Mail -> IO Mail
+addAttachment ct fn attachedFN mail = do
+    content <- LBS.readFile fn
+    let part = Mail.Part ct Mail.QuotedPrintableText (Just $ attachedFN) [] content
+    return $ Mail.addPart [part] mail
+
 sendProposalEmail :: Proposal -> Text -> Text -> Maybe FilePath -> EShell ()
 sendProposalEmail proposal subject body logFile = do
-    let attachments =
-            case logFile of
-                Nothing -> []
-                Just f -> [("text/plain", f)]
-    mail <- liftIO $ simpleMail
-        (Address Nothing $ formatEmail $ proposalEmail proposal)
-        (Address Nothing $ "elasti-prepush@elastifile.com")
+    mail1 <- liftIO $ Mail.simpleMail
+        (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
+        (Mail.Address Nothing $ "elasti-prepush@elastifile.com")
         subject
         (L.fromStrict body)
-        ""
-        attachments
+        "" []
 
-    renderdBS <- (liftIO $ renderMail' mail)
+    mail <- case logFile of
+        Nothing -> return mail1
+        Just f -> liftIO $ addAttachment "text/plain; charset=utf-8" f "log.txt" mail1
+
+    renderdBS <- (liftIO $ Mail.renderMail' mail)
     let msmtp_conf_file = "/opt/msmtp.conf"
     eprocsIn "msmtp" ["-C", msmtp_conf_file, formatEmail $ proposalEmail proposal] $ return (L.toStrict $ decodeUtf8 renderdBS)
     return ()
@@ -148,7 +155,7 @@ attemptBranch logDir cmd branch proposal = do
     finalHead <- Git.currentRef
 
     -- DO IT!
-    logFileName <- T.unpack . head <$> eprocsL "mktemp" ["-p", T.pack logDir, "prepush.XXXXXXX.log"]
+    logFileName <- T.unpack . head <$> eprocsL "mktemp" ["-p", T.pack logDir, "prepush.XXXXXXX.txt"]
     runPrepush logFileName cmd finalBase finalHead
         `catchError` (rejectProposal proposal "Prepush command failed" (Just logFileName))
 
