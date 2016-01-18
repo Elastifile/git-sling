@@ -13,8 +13,14 @@ SCRIPT_DIR=$(dirname $(realpath $BASH_SOURCE))
 
 source $SCRIPT_DIR/sling-config.sh
 
-
+ONTO_BRANCH="$1"
 set -o pipefail
+
+abort_bad_name() {
+    echo
+    echo "ERROR: Not a valid branch name: $ONTO_BRANCH"
+    exit 1
+}
 
 abort_unclean() {
     echo
@@ -24,7 +30,7 @@ abort_unclean() {
 
 abort_not_rebased() {
     echo
-    echo "ERROR: HEAD is not rebased over origin/$STAGING! Please rebase it before proposing."
+    echo "ERROR: HEAD is not rebased over origin/$ONTO_BRANCH! Please rebase it before proposing."
     exit 1
 }
 
@@ -39,13 +45,16 @@ prompt() {
         exit 1
     fi
 }
+git check-ref-format refs/heads/$ONTO_BRANCH || abort_bad_name
+git branch -r | grep $ONTO_BRANCH || abort_bad_name
 
 git describe --dirty --all | grep -E ".*-dirty$" && abort_unclean
 PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 echo "Fetching..."
 git fetch
-git branch --merged HEAD -r | grep " *origin/$STAGING\$"  > /dev/null || abort_not_rebased
+git branch --merged HEAD -r | grep " *origin/$ONTO_BRANCH\$"  > /dev/null || abort_not_rebased
+BASE_COMMIT="$(git log -1 origin/$ONTO_BRANCH --format=%h)"
 
 # The index here gives an approximate ordering (because it isn't
 # atomic on the remove status). That's good enough for now.
@@ -61,13 +70,13 @@ git config user.email | grep "\-at\-" && \
       echo " we don't support    that!";
       exit 1)
 EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
-REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH/$EMAIL"
+REMOTE_BRANCH="${PROPOSED_PREFIX}$PROPOSED_BRANCH/$NEXT_INDEX/$BASE_COMMIT/onto/$ONTO_BRANCH/$EMAIL"
 
 echo "Proposing: $PROPOSED_BRANCH"
 echo "Commits:"
 echo
 
-git log --oneline origin/$STAGING..HEAD | cat
+git log --oneline $BASE_COMMIT..HEAD | cat
 
 echo
 
