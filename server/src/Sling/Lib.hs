@@ -1,13 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Sling.Lib where
 
-import           Control.Monad.IO.Class     (liftIO)
+import System.Exit (exitWith)
+import Control.Monad.IO.Class (liftIO)
 import           Control.Monad.Trans.Either (EitherT, left, mapEitherT,
                                              runEitherT)
-import           Data.Char                  (isHexDigit, isSpace)
-import           Data.Monoid                ((<>))
-import           Data.String                (IsString (..))
-import           Data.Text                  (Text)
+import Data.Char (isHexDigit, isSpace)
+import Data.Monoid ((<>))
+import Data.String (IsString (..))
+import Data.Text (Text)
 import qualified Data.Text                  as T (all, length, lines, null,
                                                   pack, unpack)
 import           Turtle                     (ExitCode (..), Pattern, Shell,
@@ -53,7 +54,12 @@ abort msg = do
     left $ ExitFailure 1
 
 runEShell :: EShell a -> IO ()
-runEShell = sh . runEitherT
+runEShell act = sh $ do
+    res <- runEitherT act
+    case res of
+        Left ExitSuccess -> return ()
+        Left exitCode -> liftIO (exitWith exitCode)
+        _ -> return ()
 
 singleMatch :: Pattern b -> Text -> Maybe b
 singleMatch m = safe head . match m
@@ -68,8 +74,8 @@ notSpace :: Pattern Char
 notSpace = satisfy (not . isSpace)
 
 ignoreError :: EShell () -> EShell ()
-ignoreError act = do
-    _ <- liftIO $ runEShell act
+ignoreError act = sh $ do
+    _ <- runEitherT act
     return ()
 
 someText :: Pattern Text
