@@ -14,6 +14,7 @@ function configure_cron() {
 
   crontab -r
   crontab -l | { cat; echo "* * * * * ssh-agent /home/build/git/git-sling/sling-build-cron.sh"; } | crontab -
+  crontab -l | { cat; echo "0 0 * * * rm /tmp/core_*"; } | crontab -
 
 }
 
