@@ -62,7 +62,7 @@ sendProposalEmail proposal subject body logFile = do
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
         (Mail.Address Nothing $ "elasti-prepush@elastifile.com")
-        subject
+        ((fromBranchName $ proposalName proposal) <> ": " <> subject)
         (L.fromStrict body)
         "" []
 
