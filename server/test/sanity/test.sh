@@ -99,7 +99,7 @@ echo "----------------------------------------------------------------------"
 echo "Testing server in: $serverdir/work"
 # Should fail, no tools/prepush script in repo
 echo "Expecting failure..."
-run_cmd $sling_server && fail "ERROR: Server should fail!"
+run_cmd $sling_server $prepush && fail "ERROR: Server should fail!"
 
 echo "----------------------------------------------------------------------"
 
@@ -114,7 +114,7 @@ echo "----------------------------------------------------------------------"
 echo "Running server, expecting success..."
 cd_server
 # Should succeed
-run_cmd $sling_server || fail "Server should succeed!"
+run_cmd $sling_server $prepush || fail "Server should succeed!"
 
 echo "----------------------------------------------------------------------"
 
@@ -148,7 +148,7 @@ add_commit_file unrebasable "server side"
 logit push
 
 echo "Expecting failure..."
-run_cmd $sling_server && fail "ERROR: Server should fail (bad rebase)!"
+run_cmd $sling_server $prepush && fail "ERROR: Server should fail (bad rebase)!"
 
 echo "----------------------------------------------------------------------"
 
@@ -174,7 +174,7 @@ echo "----------------------------------------------------------------------"
 cd_server
 
 echo "Expecting success..."
-run_cmd $sling_server || fail "ERROR: Server should succeed!"
+run_cmd $sling_server $prepush || fail "ERROR: Server should succeed!"
 
 cd_client
 
