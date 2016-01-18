@@ -34,7 +34,7 @@ suggest_upgrade() {
 
 (cd $SCRIPT_DIR \
         && git log master..origin/master --decorate --oneline | grep master \
-        && suggest_upgrade)
+        && suggest_upgrade || true)
 
 ONTO_BRANCH="$1"
 set -o pipefail
