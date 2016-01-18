@@ -14,7 +14,7 @@ import           Control.Applicative ((<|>))
 import           Data.Monoid         ((<>))
 import           Turtle              (Pattern, alphaNum, anyChar, char, decimal,
                                       digit, hexDigit, match, notChar, oneOf,
-                                      satisfy, some, text)
+                                      satisfy, some, text, eof)
 
 data ProposalStatus = ProposalProposed | ProposalRejected
       deriving (Show, Eq, Ord)
@@ -29,7 +29,7 @@ emailPat sep = do
 data Proposal
     = Proposal
       { proposalEmail      :: Email
-      , proposalName       :: NonEmptyText
+      , proposalName       :: Git.BranchName -- not really a branch, but it will be used as a branch name
       , proposalBranchBase :: Git.Ref
       , proposalBranchOnto :: Git.BranchName
       , proposalQueueIndex :: NatInt
@@ -37,8 +37,8 @@ data Proposal
       }
       deriving (Show, Eq)
 
-escape = T.replace "/" "\\/" . T.replace "\\" "\\\\"
-unescape = T.replace "\\\\" "\\" . T.replace "\\/" "/"
+escape = T.replace "/" "/"
+unescape = T.replace "/" "/"
 
 
 formatProposal :: Proposal -> Text
@@ -49,11 +49,11 @@ formatProposal p = prefix <> suffix
                 ProposalProposed -> proposedPrefix
                 ProposalRejected -> rejectBranchPrefix
         suffix =
-            escape (fromNonEmptyText $ proposalName p) <> "/"
-            <> T.pack (show . fromNatInt . proposalQueueIndex $ p) <> "/"
-            <> (formatRef $ proposalBranchBase p) <> "/onto/"
-            <> (escape . Git.fromBranchName $ proposalBranchOnto p) <> "/"
-            <> formatSepEmail "-at-" (proposalEmail p)
+            T.pack (show . fromNatInt . proposalQueueIndex $ p)
+            <> "/" <> escape (Git.fromBranchName $ proposalName p)
+            <> "/base/" <> (formatRef $ proposalBranchBase p)
+            <> "/onto/" <> (escape . Git.fromBranchName $ proposalBranchOnto p)
+            <> "/user/" <> formatSepEmail "-at-" (proposalEmail p)
 
 refPat :: Pattern Git.Ref
 refPat =
@@ -77,15 +77,16 @@ formatRef r = escape $ Git.refName r
 proposalPat :: Pattern Proposal
 proposalPat = do
     ps <- (text proposedPrefix *> pure ProposalProposed) <|> (text rejectBranchPrefix *> pure ProposalRejected)
-    name <- nonEmptyText . unescape <$> someText
-    _ <- char '/'
     index <- natInt <$> decimal
     _ <- char '/'
+    name <- Git.mkBranchName . unescape <$> someText
+    _ <- text "/base/"
     baseRef <- refPat
     _ <- text "/onto/"
     ontoRef <- Git.mkBranchName . unescape <$> someText
-    _ <- char '/'
+    _ <- text "/user/"
     email <- emailPat "-at-"
+    _ <- eof
     return $ Proposal email name baseRef ontoRef index ps
 
 parseProposal :: Text -> Maybe Proposal

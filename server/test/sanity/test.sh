@@ -49,8 +49,9 @@ logit() {
 
 delete_rejected_branches() {
     logit fetch -p
-    rejected_branch=$(git branch -r | grep "sling/rejected/$testbranch" || fail "Expecting rejected branch!")
-    logit push --delete origin $(echo $rejected_branch | cut -d'/' -f2-)
+    git branch -r | grep -E "sling/rejected/[0-9]+/$testbranch" || fail "Expecting rejected branch!"
+    rejected_branch=$(git branch -r | grep -E "sling/rejected/[0-9]+/$testbranch")
+    logit push --delete origin $(echo "$rejected_branch" | cut -d'/' -f2-)
 }
 
 add_prepush() {
@@ -121,7 +122,7 @@ echo "----------------------------------------------------------------------"
 cd_client
 
 logit fetch -p
-git branch -r | grep "sling/propose/$testbranch" && fail "Expecting proposal branch to be deleted!"
+git branch -r | grep -E "sling/propose/[0-9]+/$testbranch" && fail "Expecting proposal branch to be deleted!"
 
 echo "Testing non-rebase proposal"
 

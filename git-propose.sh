@@ -107,7 +107,7 @@ git config user.email | grep "\-at\-" && \
       echo " we don't support    that!";
       exit 1)
 EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
-REMOTE_BRANCH="${PROPOSED_PREFIX}$PROPOSED_BRANCH/$NEXT_INDEX/$BASE_COMMIT/onto/$ONTO_BRANCH/$EMAIL"
+REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH/base/$BASE_COMMIT/onto/$ONTO_BRANCH/user/$EMAIL"
 
 echo "Proposing: $PROPOSED_BRANCH"
 echo "Commits:"

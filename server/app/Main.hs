@@ -83,7 +83,7 @@ attemptBranch cmd branch proposal = do
     liftIO $ putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
 
     let name = proposalName proposal
-        pBranchName = mkBranchName $ fromNonEmptyText name
+        pBranchName = name
         localProposalBranch = LocalBranch $ pBranchName
         ontoBranchName = proposalBranchOnto proposal
         remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
