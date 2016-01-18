@@ -31,6 +31,7 @@ import           System.IO.Temp (createTempDirectory)
 import qualified Network.Mail.Mime as Mail
 import           Network.Mail.Mime (Mail)
 import Text.Blaze.Html (toHtml)
+import Text.Blaze.Html.Renderer.Utf8 (renderHtml)
 
 runPrepush :: FilePath -> [String] -> Ref -> Ref -> EShell ()
 runPrepush logFile cmd baseR headR = do
@@ -53,7 +54,7 @@ addAttachment :: Text -> FilePath -> Text -> Mail -> IO Mail
 addAttachment ct fn attachedFN mail = do
     content <- LBS.readFile fn
     let part = Mail.Part ct Mail.QuotedPrintableText (Just $ attachedFN) []
-               ("<html><body><pre>" <> toHtml content <> "</pre></body></html>")
+               ("<html><body><pre>" <> renderHtml (toHtml . L.toStrict $ decodeUtf8 content) <> "</pre></body></html>")
     return $ Mail.addPart [part] mail
 
 sendProposalEmail :: Proposal -> Text -> Text -> Maybe FilePath -> EShell ()
