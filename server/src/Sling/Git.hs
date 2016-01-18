@@ -76,10 +76,10 @@ fileStatusPat :: Pattern FileStatus
 fileStatusPat = ((" " *> pure Unmodified)
                  <|> ("M" *> pure Modified)
                  <|> ("A" *> pure Added)
-                 <|> ("D" *> pure Deleted))
+                 <|> ("D" *> pure Deleted)
                  <|> ("R" *> pure Renamed)
                  <|> ("C" *> pure Copied)
-                 <|> ("U" *> pure Unmerged)
+                 <|> ("U" *> pure Unmerged))
 
 trackedPat :: Pattern IndexStatus
 trackedPat = Tracked <$> fileStatusPat <*> fileStatusPat
