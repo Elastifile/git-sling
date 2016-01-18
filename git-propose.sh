@@ -82,10 +82,10 @@ prompt() {
         exit 1
     fi
 }
-git check-ref-format refs/heads/$ONTO_BRANCH || abort_bad_name
-git branch -r | grep $ONTO_BRANCH || abort_bad_name
+git check-ref-format refs/heads/$ONTO_BRANCH > /dev/null || abort_bad_name
+git branch -r | grep $ONTO_BRANCH > /dev/null || abort_bad_name
 
-git describe --dirty --all | grep -E ".*-dirty$" && abort_unclean
+git describe --dirty --all | grep -E ".*-dirty$"  > /dev/null && abort_unclean
 PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 echo "Fetching..."
