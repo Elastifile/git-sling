@@ -56,8 +56,13 @@ configure_git_user() {
   git config --global user.email "elasti-prepush@elastifile.com"
 }
 
-main() {
+configure_stack() {
+    curl -sSL https://s3.amazonaws.com/download.fpcomplete.com/centos/7/fpco.repo | sudo tee /etc/yum.repos.d/fpco.repo
+    yum install -y stack
+}
 
+main() {
+  configure_stack
   configure_mstp
   clone_git_sling_repo
   configure_cron
