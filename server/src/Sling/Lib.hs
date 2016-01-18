@@ -91,6 +91,7 @@ instance IsString NonEmptyText where
     fromString = NonEmptyText . T.pack
 
 -- TODO: :/
+nonEmptyText :: Text -> NonEmptyText
 nonEmptyText t =
     if T.null t
     then error "Something has gone terribly wrong! Expected non-empty text."
@@ -100,6 +101,7 @@ nonEmptyText t =
 newtype NatInt = NatInt { fromNatInt :: Int }
     deriving (Show, Eq, Ord)
 
+natInt :: Int -> NatInt
 natInt x =
     if x >= 0
     then NatInt x
@@ -108,6 +110,7 @@ natInt x =
 newtype Hash = Hash { fromHash :: Text }
     deriving (Show, Eq, Ord)
 
+hash :: Text -> Hash
 hash x =
     if T.all isHexDigit x || (T.length x < 1)
     then Hash x

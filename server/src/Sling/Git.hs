@@ -11,8 +11,7 @@ import           Data.Text              (Text)
 import qualified Data.Text              as T
 import           Sling.Lib
 import           Turtle                 (Pattern, anyChar, char, eof, hexDigit,
-                                         match, satisfy, selfless, some, space,
-                                         spaces, text, (&))
+                                         selfless, some, space, spaces, text)
 
 git :: [Text] -> EShell [Text]
 git args = do
@@ -34,8 +33,8 @@ data IndexedName = Name { _indexedName :: NonEmptyText }
                           , _indexedNewName :: NonEmptyText }
     deriving (Show, Eq, Ord)
 
-data GitStatus = GitStatus { statusIndex :: IndexStatus
-                           , statusFileName    :: IndexedName }
+data GitStatus = GitStatus { statusIndex    :: IndexStatus
+                           , statusFileName :: IndexedName }
     deriving (Show, Eq, Ord)
 
 newtype Remote = Remote { remoteName :: NonEmptyText }
@@ -44,6 +43,7 @@ newtype Remote = Remote { remoteName :: NonEmptyText }
 newtype BranchName = BranchName { fromBranchName :: Text }
     deriving (Show, Eq, Ord)
 
+mkBranchName :: Text -> BranchName
 mkBranchName = BranchName -- TODO validate
 
 instance IsString BranchName where
@@ -52,7 +52,7 @@ instance IsString BranchName where
 data Branch
     = LocalBranch { _localBranchName :: BranchName }
     | RemoteBranch { _remoteBranchRemote :: Remote
-                   , _remoteBranchName :: BranchName }
+                   , _remoteBranchName   :: BranchName }
     deriving (Show, Eq, Ord)
 
 data Ref = RefBranch Branch | RefHead | RefHash Hash | RefParent Ref NatInt
