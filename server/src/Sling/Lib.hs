@@ -19,14 +19,18 @@ import           Turtle                     (ExitCode (..), Pattern, Shell,
 
 type EShell a = EitherT ExitCode Shell a
 
-eprocs :: Text -> [Text] -> EShell Text
-eprocs cmd args = do
-    (exitCode, t) <- procStrict cmd args empty
+eprocsIn :: Text -> [Text] -> Shell Text -> EShell Text
+eprocsIn cmd args input = do
+    (exitCode, t) <- procStrict cmd args input
     case exitCode of
         ExitSuccess -> pure t
         _           -> do
             liftIO $ print (cmd, args)
+            liftIO $ putStrLn $ T.unpack t
             left exitCode
+
+eprocs :: Text -> [Text] -> EShell Text
+eprocs cmd args = eprocsIn cmd args empty
 
 eprocsL :: Text -> [Text] -> EShell [Text]
 eprocsL cmd args = T.lines <$> eprocs cmd args
