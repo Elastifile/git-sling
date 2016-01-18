@@ -5,6 +5,7 @@ SCRIPT_DIR=$(dirname $(readlink -f $0))
 source $SCRIPT_DIR/sling-config.sh
 
 cd $SCRIPT_DIR/server
+stack setup
 stack build
 SLING_SERVER=$(stack path --project-root)/$(stack path --dist-dir)/build/sling-server-exe/sling-server-exe
 
