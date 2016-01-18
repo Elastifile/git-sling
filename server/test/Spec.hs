@@ -2,7 +2,6 @@
 import           Control.Monad (replicateM)
 import           Test.QuickCheck
 
-import           Data.Text (Text)
 import qualified Data.Text as T
 
 import           Data.Char (isAlphaNum)
@@ -24,9 +23,11 @@ prop_buildParseProposal p =
 
 instance Arbitrary NonEmptyText where
     arbitrary = nonEmptyText . T.pack . getNonEmpty <$> arbitrary
+    shrink = map (nonEmptyText . T.pack) . filter (not . null) . shrink . T.unpack . fromNonEmptyText
 
 instance Arbitrary NatInt where
     arbitrary = NatInt . getNonNegative <$> arbitrary
+    shrink = map NatInt . filter (>=0) . shrink . fromNatInt
 
 hexDigits = elements (['0'..'9'] ++ ['A'..'F'])
 
@@ -34,6 +35,7 @@ instance Arbitrary Hash where
     arbitrary = hash . T.pack <$> do
         l <- choose (1,40) -- this is your string length
         replicateM l hexDigits
+    shrink = map (hash . T.pack) . filter (not . null) . shrink . T.unpack . fromHash
 
 -- Determined 'empirically' :(
 -- TODO: this is too permissive. See 'man git-check-ref-format' or
@@ -44,6 +46,7 @@ instance Arbitrary BranchName where
     arbitrary = mkBranchName . T.pack <$> do
         l <- choose (1,100)
         replicateM l branchChars
+    shrink = map (mkBranchName . T.pack) . filter (not . null) . shrink . T.unpack . fromBranchName
 
 -- Determined 'empirically' :(
 -- too restrictive?
@@ -53,6 +56,7 @@ instance Arbitrary Remote where
     arbitrary = Remote . nonEmptyText . T.pack <$> do
         l <- choose (1,100)
         replicateM l remoteChars
+    shrink (Remote x) = map Remote . shrink $ x
 
 stupidEnsureNotEmpty [] = "X"
 stupidEnsureNotEmpty xs = xs
@@ -62,6 +66,7 @@ instance Arbitrary Email where
         user <- nonEmptyText . T.pack . stupidEnsureNotEmpty . filter (\x -> isAlphaNum x || x `elem` ".-_+") . getNonEmpty <$> arbitrary
         domain <- nonEmptyText . T.pack . stupidEnsureNotEmpty . filter (\x -> isAlphaNum x || x `elem` ".-") . getNonEmpty <$> arbitrary
         return $ Email user domain
+    shrink (Email u d) = map (uncurry Email) $ shrink (u, d)
 
 derive makeArbitrary ''ProposalStatus
 derive makeArbitrary ''Proposal
