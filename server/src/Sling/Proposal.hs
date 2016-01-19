@@ -39,14 +39,14 @@ formatProposal :: Proposal -> Text
 formatProposal p = prefix <> suffix
     where
         prefix =
-            case (proposalStatus p) of
+            case proposalStatus p of
                 ProposalProposed -> proposedPrefix
                 ProposalRejected -> rejectBranchPrefix
         suffix =
             T.pack (show . fromNatInt . proposalQueueIndex $ p)
-            <> "/" <> (Git.fromBranchName $ proposalName p)
-            <> "/base/" <> (formatRef $ proposalBranchBase p)
-            <> "/onto/" <> (Git.fromBranchName $ proposalBranchOnto p)
+            <> "/" <> Git.fromBranchName (proposalName p)
+            <> "/base/" <> formatRef (proposalBranchBase p)
+            <> "/onto/" <> Git.fromBranchName (proposalBranchOnto p)
             <> "/user/" <> formatSepEmail "-at-" (proposalEmail p)
 
 refPat :: Pattern Git.Ref
@@ -54,8 +54,8 @@ refPat =
     ((text "HEAD" >> pure Git.RefHead)
      <|> (flip Git.RefParent <$> ((natInt <$> decimal) <* text "^") <*> refPat))
      <|> (Git.RefHash . hash . T.pack <$> some hexDigit)
-     <|> ((text "R-") *> (Git.RefBranch <$> remoteBranchPat))
-     <|> ((text "L-") *> (Git.RefBranch . Git.LocalBranch <$> branchNamePat))
+     <|> (text "R-" *> (Git.RefBranch <$> remoteBranchPat))
+     <|> (text "L-" *> (Git.RefBranch . Git.LocalBranch <$> branchNamePat))
     where
         branchNamePat = Git.mkBranchName . T.pack <$> some (notChar '^')
         remoteBranchPat =
@@ -64,8 +64,8 @@ refPat =
 
 formatRef :: Git.Ref -> Text
 formatRef (Git.RefParent r n) = (T.pack . show $ fromNatInt n) <> "^" <> formatRef r
-formatRef (Git.RefBranch (Git.RemoteBranch r n)) = "R-" <> (fromNonEmptyText $ Git.remoteName r) <> "/" <> (Git.fromBranchName n)
-formatRef r@(Git.RefBranch (Git.LocalBranch{})) = "L-" <> (Git.refName r)
+formatRef (Git.RefBranch (Git.RemoteBranch r n)) = "R-" <> fromNonEmptyText (Git.remoteName r) <> "/" <> Git.fromBranchName n
+formatRef r@(Git.RefBranch (Git.LocalBranch{})) = "L-" <> Git.refName r
 formatRef r = Git.refName r
 
 proposalPat :: Pattern Proposal

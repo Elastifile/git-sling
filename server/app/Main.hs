@@ -2,11 +2,11 @@
 {-# LANGUAGE TupleSections     #-}
 module Main where
 
-import           Control.Monad                 (forM_, when)
+import           Control.Monad                 (forM_, when, unless)
 import           Control.Monad.Except          (MonadError (..))
 import           Control.Monad.IO.Class        (liftIO)
 import qualified Data.ByteString.Lazy          as LBS
-import           Data.Maybe                    (catMaybes)
+import           Data.Maybe                    (mapMaybe)
 import           Data.Text                     (Text)
 import qualified Data.Text                     as T
 import qualified Data.Text.Lazy                as L
@@ -32,9 +32,9 @@ import           Text.Blaze.Html.Renderer.Utf8 (renderHtml)
 
 runPrepush :: FilePath -> [String] -> Ref -> Ref -> EShell ()
 runPrepush logFile cmd baseR headR = do
-    let args = T.intercalate " " $ (map T.pack cmd) ++ [Git.refName baseR, Git.refName headR]
-    liftIO $ putStrLn . T.unpack $ "Executing bash with: " <> args <> " output goes to: " <> (T.pack logFile)
-    _output <- eprocsL "bash" ["-c", args <> " &>" <> (T.pack logFile)]
+    let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
+    liftIO $ putStrLn . T.unpack $ "Executing bash with: " <> args <> " output goes to: " <> T.pack logFile
+    _output <- eprocsL "bash" ["-c", args <> " &>" <> T.pack logFile]
     -- TODO delete log if successful?
     return ()
 
@@ -53,7 +53,7 @@ resetLocalOnto proposal = do
 addAttachment :: Text -> FilePath -> Text -> Mail -> IO Mail
 addAttachment ct fn attachedFN mail = do
     content <- LBS.readFile fn
-    let part = Mail.Part ct Mail.QuotedPrintableText (Just $ attachedFN) []
+    let part = Mail.Part ct Mail.QuotedPrintableText (Just attachedFN) []
                ("<html><body><pre>" <> renderHtml (toHtml . L.toStrict $ decodeUtf8 content) <> "</pre></body></html>")
     return $ Mail.addPart [part] mail
 
@@ -62,7 +62,7 @@ sendProposalEmail proposal subject body logFile = do
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
         (Mail.Address Nothing $ formatEmail sourceEmail)
-        ((fromBranchName $ proposalName proposal) <> ": " <> subject)
+        (fromBranchName (proposalName proposal) <> ": " <> subject)
         (L.fromStrict body)
         "" []
 
@@ -70,7 +70,7 @@ sendProposalEmail proposal subject body logFile = do
         Nothing -> return mail1
         Just f -> liftIO $ addAttachment "text/html; charset=utf-8" f "log.html" mail1
 
-    renderdBS <- (liftIO $ Mail.renderMail' mail)
+    renderdBS <- liftIO $ Mail.renderMail' mail
     let msmtp_conf_file = "/opt/msmtp.conf"
     _ <- eprocsIn "msmtp" ["-C", msmtp_conf_file, formatEmail $ proposalEmail proposal] $ return (L.toStrict $ decodeUtf8 renderdBS)
     return ()
@@ -91,7 +91,7 @@ rejectProposal proposal msg logFile err = do
     let rejectedProposal = proposal { proposalStatus = ProposalRejected }
         rejectBranchName = formatProposal rejectedProposal
         origBranchName = formatProposal proposal
-        msgBody = "REJECT " <> origBranchName <> " because: '" <> msg <> "', exit code = " <> (T.pack $ show err)
+        msgBody = "REJECT " <> origBranchName <> " because: '" <> msg <> "', exit code = " <> T.pack (show err)
     liftIO $ putStrLn . T.unpack $ msgBody
     sendProposalEmail proposal ("Rejecting (" <> msg <> ")") msgBody logFile
     Git.fetch & ignoreError
@@ -109,7 +109,7 @@ rejectProposal proposal msg logFile err = do
 attemptBranchOrAbort :: [String] -> Branch -> Proposal -> EShell ()
 attemptBranchOrAbort cmd branch proposal = do
     dirPath <- liftIO $ createTempDirectory "/tmp" "sling.log"
-    (attemptBranch dirPath cmd branch proposal) `catchError` (abortAttempt proposal)
+    attemptBranch dirPath cmd branch proposal `catchError` abortAttempt proposal
 
 attemptBranch :: FilePath -> [String] -> Branch -> Proposal -> EShell ()
 attemptBranch logDir cmd branch proposal = do
@@ -123,11 +123,11 @@ attemptBranch logDir cmd branch proposal = do
     remoteBranches <- Git.remoteBranches
 
     let niceBranchName = mkBranchName $ slingPrefix <> "/work/" <> fromBranchName (proposalName proposal)
-        niceBranch = LocalBranch $ niceBranchName
+        niceBranch = LocalBranch niceBranchName
         ontoBranchName = proposalBranchOnto proposal
         remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
         verifyRemoteBranch rb =
-            when (not $ elem rb remoteBranches)
+            unless (elem rb remoteBranches)
             $ abort $ "No remote branch: " <> T.pack (show rb)
 
     verifyRemoteBranch (origin, ontoBranchName)
@@ -143,7 +143,7 @@ attemptBranch logDir cmd branch proposal = do
 
     -- Rebase onto target
     Git.rebase (proposalBranchBase proposal) remoteOnto
-        `catchError` (rejectProposal proposal "Rebase failed" Nothing)
+        `catchError` rejectProposal proposal "Rebase failed" Nothing
 
     liftIO $ putStrLn "Commits (after rebase): "
     commitsAfter <- Git.log (proposalBranchBase proposal) (RefBranch branch)
@@ -166,9 +166,9 @@ attemptBranch logDir cmd branch proposal = do
     -- DO IT!
     logFileName <- T.unpack . head <$> eprocsL "mktemp" ["-p", T.pack logDir, "prepush.XXXXXXX.txt"]
     runPrepush logFileName cmd finalBase finalHead
-        `catchError` (rejectProposal proposal "Prepush command failed" (Just logFileName))
+        `catchError` rejectProposal proposal "Prepush command failed" (Just logFileName)
 
-    liftIO $ putStrLn . T.unpack $ "Updating: " <> (fromBranchName ontoBranchName)
+    liftIO $ putStrLn . T.unpack $ "Updating: " <> fromBranchName ontoBranchName
     Git.checkout (LocalBranch ontoBranchName) -- in case script moved git
     -- TODO ensure not dirty
     Git.push -- TODO -u origin master
@@ -185,7 +185,7 @@ attemptBranch logDir cmd branch proposal = do
     liftIO $ putStrLn . T.unpack $ "Finished handling proposal " <> formatProposal proposal
 
 usage :: String
-usage = concat $ List.intersperse "\n" $
+usage = List.intercalate "\n"
     [ "Usage: sling-server COMMAND"
     , ""
     , "where COMMAND is the prepush command to run on each attempted branch."
@@ -202,12 +202,10 @@ main = runEShell $ do
 
     let proposedBranches =
             List.sort
-            $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ snd b))
-            $ remoteBranches
+            $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ snd b)) remoteBranches
 
     liftIO $ mapM_ print proposedBranches
-    forM_ (catMaybes
-           $ map (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches))
+    forM_ (mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches))
            (uncurry $ attemptBranchOrAbort prepushCmd)
 
 

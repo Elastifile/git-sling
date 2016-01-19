@@ -124,7 +124,7 @@ data Email = Email { emailUser :: NonEmptyText, emailDomain :: NonEmptyText }
     deriving (Show, Eq)
 
 formatSepEmail :: Text -> Email -> Text
-formatSepEmail sep (Email user domain) = (fromNonEmptyText user) <> sep <> (fromNonEmptyText domain)
+formatSepEmail sep (Email user domain) = fromNonEmptyText user <> sep <> fromNonEmptyText domain
 
 formatEmail :: Email -> Text
 formatEmail = formatSepEmail "@"

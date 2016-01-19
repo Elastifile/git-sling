@@ -4,7 +4,7 @@ module Sling.Git where
 import           Control.Applicative    ((<|>))
 import           Control.Monad          (join)
 import           Control.Monad.IO.Class (liftIO)
-import           Data.Maybe             (catMaybes)
+import           Data.Maybe             (mapMaybe)
 import           Data.Monoid            ((<>))
 import           Data.String            (IsString (..))
 import           Data.Text              (Text)
@@ -64,7 +64,7 @@ branchName (RemoteBranch _ n) = fromBranchName n
 
 branchFullName :: Branch -> Text
 branchFullName (LocalBranch n) = fromBranchName n
-branchFullName (RemoteBranch (Remote r) n) = (fromNonEmptyText r) <> "/" <> (fromBranchName n)
+branchFullName (RemoteBranch (Remote r) n) = fromNonEmptyText r <> "/" <> fromBranchName n
 
 refName :: Ref -> Text
 refName (RefBranch b) = branchFullName b
@@ -73,21 +73,21 @@ refName (RefHash t) = fromHash t
 refName (RefParent r n) = refName r <> "~" <> T.pack (show $ fromNatInt n)
 
 fileStatusPat :: Pattern FileStatus
-fileStatusPat = ((" " *> pure Unmodified)
+fileStatusPat = (" " *> pure Unmodified)
                  <|> ("M" *> pure Modified)
                  <|> ("A" *> pure Added)
                  <|> ("D" *> pure Deleted)
                  <|> ("R" *> pure Renamed)
                  <|> ("C" *> pure Copied)
-                 <|> ("U" *> pure Unmerged))
+                 <|> ("U" *> pure Unmerged)
 
 trackedPat :: Pattern IndexStatus
 trackedPat = Tracked <$> fileStatusPat <*> fileStatusPat
 
 indexStatusPat :: Pattern IndexStatus
-indexStatusPat = (("??" *> pure Untracked)
+indexStatusPat = ("??" *> pure Untracked)
                   <|> "!!" *> pure Ignored
-                  <|> trackedPat)
+                  <|> trackedPat
 
 fileNamePat :: Pattern Text
 fileNamePat = T.pack <$> some notSpace -- todo handle escaping
@@ -96,12 +96,12 @@ filePat :: Pattern GitStatus
 filePat = do _ <- spaces
              s <- indexStatusPat
              _ <- some space
-             fileName <- (((Name . nonEmptyText <$> fileNamePat) <* eof)
-                          <|> (Rename . nonEmptyText <$> (fileNamePat <* text " -> ") <*> (nonEmptyText <$> fileNamePat <* eof)))
+             fileName <- ((Name . nonEmptyText <$> fileNamePat) <* eof)
+                          <|> (Rename . nonEmptyText <$> (fileNamePat <* text " -> ") <*> (nonEmptyText <$> fileNamePat <* eof))
              return $ GitStatus s fileName
 
 status :: EShell [Maybe GitStatus]
-status = (map $ singleMatch filePat) <$> git ["status", "--porcelain"]
+status = map (singleMatch filePat) <$> git ["status", "--porcelain"]
     -- ^|^ rmap (singleMatch filePat)
 
 class CmdLineOption c where
@@ -111,7 +111,7 @@ fetch :: EShell ()
 fetch = git ["fetch", "-p"] >> pure ()
 
 remote :: EShell [Remote]
-remote = (map $ Remote . nonEmptyText) <$> git ["remote"]
+remote = map (Remote . nonEmptyText) <$> git ["remote"]
 
 checkout :: Branch -> EShell ()
 checkout branch = git ["checkout", branchFullName branch] >> pure ()
@@ -145,14 +145,14 @@ rebaseAbort = git ["rebase", "--abort"] >> pure ()
 
 remoteBranchPat :: Pattern (Remote, BranchName)
 remoteBranchPat = do
-    r <- Remote . nonEmptyText . T.pack <$> (selfless $ spaces *> some notSpace)
+    r <- Remote . nonEmptyText . T.pack <$> selfless (spaces *> some notSpace)
     name <- mkBranchName . T.pack <$> (char '/' *> some notSpace)
     eof
-    return $ (r, name)
+    return (r, name)
 
 remoteBranches :: EShell [(Remote, BranchName)]
 remoteBranches =
-    (catMaybes . map (singleMatch remoteBranchPat))
+    (mapMaybe (singleMatch remoteBranchPat))
     <$> git ["branch", "--list", "-r", "--no-color"]
 
 deleteLocalBranch :: BranchName -> EShell ()
@@ -162,7 +162,7 @@ deleteRemoteBranch :: Remote -> BranchName -> EShell ()
 deleteRemoteBranch r n = git ["push", "--delete", fromNonEmptyText $ remoteName r, fromBranchName n] >> pure ()
 
 deleteBranch :: Branch -> EShell ()
-deleteBranch branch = do
+deleteBranch branch =
     case branch of
         LocalBranch n -> deleteLocalBranch n
         RemoteBranch r n -> deleteRemoteBranch r n
@@ -197,10 +197,10 @@ log base top = do
     let onelinePat = do
             ref <- RefHash . hash . T.pack <$> some hexDigit <* spaces
             title <- T.pack <$> some anyChar <* eof
-            return $ (ref, title)
+            return (ref, title)
     join $ mapM (mustMatch onelinePat) <$> git ["log", "--oneline", refName base <> ".." <> refName top]
 
 commitAmend :: Email -> Ref -> EShell ()
 commitAmend email ref =
     git ["commit", "--amend", "-s", "--author=" <> formatEmail email, "-C", refName ref]
-    >> (pure ())
+    >> pure ()

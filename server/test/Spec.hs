@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-import           Control.Monad   (replicateM)
+import           Control.Monad   (replicateM, void)
 import           Test.QuickCheck
 
 import qualified Data.Text       as T
@@ -17,7 +17,7 @@ import           Sling.Proposal
 
 prop_buildParseProposal :: Proposal -> Bool
 prop_buildParseProposal p =
-    case (parseProposal $ formatProposal p) of
+    case parseProposal $ formatProposal p of
         Nothing -> False
         Just p' -> p == p'
 
@@ -88,6 +88,6 @@ runTests :: IO Bool
 runTests = $quickCheckAll
 
 main :: IO ()
-main = runTests >> return ()
+main = void runTests
 
 
