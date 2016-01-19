@@ -118,7 +118,7 @@ attemptBranchOrAbort cmd branch proposal = do
 htmlFormatCommit :: Maybe Text -> Git.LogEntry -> H.Html
 htmlFormatCommit urlPrefix l = do
     let hashCol =
-            case (join $ Git.githubCommitUrl (Git.logEntryShortHash l) <$> urlPrefix) of
+            case (join $ Git.githubCommitUrl (Git.logEntryFullHash l) <$> urlPrefix) of
                 Nothing -> fromString . T.unpack $ fromHash $ Git.logEntryShortHash l
                 Just url -> H.a ! A.href (fromString $ T.unpack url) $ fromString . T.unpack $ fromHash $ Git.logEntryShortHash l
     H.td hashCol
