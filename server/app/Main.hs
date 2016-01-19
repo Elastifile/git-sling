@@ -2,7 +2,7 @@
 {-# LANGUAGE TupleSections     #-}
 module Main where
 
-import           Control.Monad (forM_, when, unless, join, void)
+import           Control.Monad (forM_, when, unless, join)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Lazy as LBS
@@ -65,9 +65,11 @@ sendProposalEmail proposal subject body logFile = do
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
         (Mail.Address Nothing $ formatEmail sourceEmail)
-        (fromBranchName (proposalName proposal) <> ": " <> subject)
+        (fromBranchName (proposalName proposal) <> " (" <> formatProposal proposal <> ")")
         ""
-        (renderHtml body)
+        (renderHtml $ do
+                H.p . H.b $ fromString $ T.unpack subject
+                body)
         []
 
     mail <- case logFile of
@@ -88,7 +90,6 @@ abortAttempt proposal _err = do
     Git.reset Git.ResetHard RefHead
     resetLocalOnto proposal
     abort "Aborted"
-
 
 rejectProposal :: Proposal -> Text -> Maybe FilePath -> ExitCode -> EShell ()
 rejectProposal proposal msg logFile err = do
@@ -128,8 +129,16 @@ htmlFormatCommit urlPrefix l = do
 htmlFormatCommitLog :: [Git.LogEntry] -> Maybe Text -> H.Html
 htmlFormatCommitLog commits urlPrefix = do
     H.p "Commits:"
-    (H.table . H.tbody) $ mapM_ (H.tr . htmlFormatCommit urlPrefix) commits
-    return ()
+    H.table . H.tbody $ mapM_ (H.tr . htmlFormatCommit urlPrefix) commits
+
+proposalEmailHeader :: Proposal -> [Git.LogEntry] -> Maybe Text -> H.Html
+proposalEmailHeader proposal commits baseUrl = do
+    H.p . H.b $ "Proposal"
+    H.p . fromString $ "Proposed by: " <> (T.unpack $ formatEmail . proposalEmail $ proposal)
+    H.p $ do
+        H.span "Onto branch: "
+        H.b (fromString . T.unpack . fromBranchName . proposalBranchOnto $ proposal)
+    htmlFormatCommitLog commits baseUrl
 
 attemptBranch :: FilePath -> [String] -> Branch -> Proposal -> EShell ()
 attemptBranch logDir cmd branch proposal = do
@@ -140,7 +149,7 @@ attemptBranch logDir cmd branch proposal = do
     commits <- Git.log (proposalBranchBase proposal) (RefBranch branch)
     liftIO $ mapM_ print commits
 
-    commitLogHtml <- htmlFormatCommitLog commits <$> Git.remoteUrl origin
+    commitLogHtml <- proposalEmailHeader proposal commits <$> Git.remoteUrl origin
     sendProposalEmail proposal "Attempting to merge" commitLogHtml Nothing
 
     -- cleanup leftover state from previous runs
