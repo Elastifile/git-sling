@@ -11,7 +11,7 @@ import           Data.Text              (Text)
 import qualified Data.Text              as T
 import           Sling.Lib
 import           Turtle                 (Pattern, anyChar, char, eof, hexDigit,
-                                         selfless, some, space, spaces, text)
+                                         selfless, some, space, spaces, text, notChar)
 
 git :: [Text] -> EShell [Text]
 git args = do
@@ -192,15 +192,44 @@ isMergeCommit ref = do
         Just 1 -> return False
         _ -> return True -- more than one parent
 
-log :: Ref -> Ref -> EShell [(Ref, Text)]
-log base top = do
-    let onelinePat = do
-            ref <- RefHash . hash . T.pack <$> some hexDigit <* spaces
-            title <- T.pack <$> some anyChar <* eof
-            return (ref, title)
-    join $ mapM (mustMatch onelinePat) <$> git ["log", "--oneline", refName base <> ".." <> refName top]
+hashPat :: Pattern Hash
+hashPat = hash . T.pack <$> some hexDigit
+
+data LogEntry = LogEntry { logEntryFullHash :: Hash
+                         , logEntryShortHash :: Hash
+                         , logEntryAuthor :: Text
+                         , logEntryTitle :: Text }
+    deriving (Show, Eq, Ord)
+
+logPat :: Pattern LogEntry
+logPat = do
+    fullref <- hashPat <* spaces
+    shortref <- hashPat <* spaces
+    user <- T.pack <$> some (notChar '|')
+    _ <- char '|'
+    title <- T.pack <$> some anyChar
+    return $ LogEntry fullref shortref user title
+
+log :: Ref -> Ref -> EShell [LogEntry]
+log base top = join $ mapM (mustMatch logPat) <$> git ["log", "--format=%H %h %an|%s", refName base <> ".." <> refName top]
 
 commitAmend :: Email -> Ref -> EShell ()
 commitAmend email ref =
     git ["commit", "--amend", "-s", "--author=" <> formatEmail email, "-C", refName ref]
     >> pure ()
+
+remoteUrl :: Remote -> EShell (Maybe Text)
+remoteUrl r = safe head <$> git ["config", "remote." <> fromNonEmptyText (remoteName r) <> ".url"]
+
+buildGithubCommitUrl :: Hash -> Text -> Text -> Text
+buildGithubCommitUrl h user repo = "https://github.com/" <> user <> "/" <> repo <> "/commit/" <> fromHash h
+
+githubUrlPat :: Pattern (Text, Text)
+githubUrlPat = do
+    user <- T.pack <$> (text "git@github.com:" *> some (notChar '/'))
+    repo <- T.pack <$> some (notChar '.') <* text ".git"
+    return (user, repo)
+
+githubCommitUrl :: Hash -> Text -> (Maybe Text)
+githubCommitUrl h url =
+    uncurry (buildGithubCommitUrl h) <$> singleMatch githubUrlPat url

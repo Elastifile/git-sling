@@ -2,33 +2,36 @@
 {-# LANGUAGE TupleSections     #-}
 module Main where
 
-import           Control.Monad                 (forM_, when, unless)
-import           Control.Monad.Except          (MonadError (..))
-import           Control.Monad.IO.Class        (liftIO)
-import qualified Data.ByteString.Lazy          as LBS
-import           Data.Maybe                    (mapMaybe)
-import           Data.Text                     (Text)
-import qualified Data.Text                     as T
-import qualified Data.Text.Lazy                as L
-import           Data.Text.Lazy.Encoding       (decodeUtf8)
+import           Control.Monad (forM_, when, unless, join, void)
+import           Control.Monad.Except (MonadError (..))
+import           Control.Monad.IO.Class (liftIO)
+import qualified Data.ByteString.Lazy as LBS
+import           Data.Maybe (mapMaybe)
+import           Data.String (fromString)
+import           Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Lazy as L
+import           Data.Text.Lazy.Encoding (decodeUtf8, encodeUtf8)
 import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..), branchName,
                                                 fromBranchName, mkBranchName)
-import qualified Sling.Git                     as Git
+import qualified Sling.Git as Git
 import           Sling.Lib                     (EShell, Email (..), abort,
                                                 eprocsIn, eprocsL, formatEmail,
-                                                ignoreError, runEShell)
+                                                ignoreError, runEShell, fromHash)
 import           Sling.Proposal
-import           Turtle                        (ExitCode, (&))
+import           Turtle (ExitCode, (&))
 
-import qualified Data.List                     as List
-import           Data.Monoid                   ((<>))
-import           Network.Mail.Mime             (Mail)
-import qualified Network.Mail.Mime             as Mail
-import           System.Environment            (getArgs)
-import           System.IO.Temp                (createTempDirectory)
-import           Text.Blaze.Html               (toHtml)
-import           Text.Blaze.Html.Renderer.Utf8 (renderHtml)
+import qualified Data.List as List
+import           Data.Monoid ((<>))
+import           Network.Mail.Mime (Mail)
+import qualified Network.Mail.Mime as Mail
+import           System.Environment (getArgs)
+import           System.IO.Temp (createTempDirectory)
+import           Text.Blaze.Html (toHtml, (!))
+import           Text.Blaze.Html.Renderer.Text (renderHtml)
+import qualified Text.Blaze.Html5 as H
+import qualified Text.Blaze.Html5.Attributes as A
 
 runPrepush :: FilePath -> [String] -> Ref -> Ref -> EShell ()
 runPrepush logFile cmd baseR headR = do
@@ -54,17 +57,18 @@ addAttachment :: Text -> FilePath -> Text -> Mail -> IO Mail
 addAttachment ct fn attachedFN mail = do
     content <- LBS.readFile fn
     let part = Mail.Part ct Mail.QuotedPrintableText (Just attachedFN) []
-               ("<html><body><pre>" <> renderHtml (toHtml . L.toStrict $ decodeUtf8 content) <> "</pre></body></html>")
+               (encodeUtf8 ("<html><body><pre>" <> renderHtml (toHtml . L.toStrict $ decodeUtf8 content) <> "</pre></body></html>"))
     return $ Mail.addPart [part] mail
 
-sendProposalEmail :: Proposal -> Text -> Text -> Maybe FilePath -> EShell ()
+sendProposalEmail :: Proposal -> Text -> H.Html -> Maybe FilePath -> EShell ()
 sendProposalEmail proposal subject body logFile = do
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
         (Mail.Address Nothing $ formatEmail sourceEmail)
         (fromBranchName (proposalName proposal) <> ": " <> subject)
-        (L.fromStrict body)
-        "" []
+        ""
+        (renderHtml body)
+        []
 
     mail <- case logFile of
         Nothing -> return mail1
@@ -93,7 +97,7 @@ rejectProposal proposal msg logFile err = do
         origBranchName = formatProposal proposal
         msgBody = "REJECT " <> origBranchName <> " because: '" <> msg <> "', exit code = " <> T.pack (show err)
     liftIO $ putStrLn . T.unpack $ msgBody
-    sendProposalEmail proposal ("Rejecting (" <> msg <> ")") msgBody logFile
+    sendProposalEmail proposal ("Rejecting (" <> msg <> ")") (toHtml msgBody) logFile
     Git.fetch & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
     Git.deleteBranch (LocalBranch $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
@@ -111,15 +115,39 @@ attemptBranchOrAbort cmd branch proposal = do
     dirPath <- liftIO $ createTempDirectory "/tmp" "sling.log"
     attemptBranch dirPath cmd branch proposal `catchError` abortAttempt proposal
 
+htmlFormatCommit :: Maybe Text -> Git.LogEntry -> H.Html
+htmlFormatCommit urlPrefix l = do
+    let hashCol =
+            case (join $ Git.githubCommitUrl (Git.logEntryShortHash l) <$> urlPrefix) of
+                Nothing -> fromString . T.unpack $ fromHash $ Git.logEntryShortHash l
+                Just url -> H.a ! A.href (fromString $ T.unpack url) $ fromString . T.unpack $ fromHash $ Git.logEntryShortHash l
+    H.td hashCol
+    H.td $ fromString $ T.unpack $ Git.logEntryAuthor l
+    H.td $ fromString $ T.unpack $ Git.logEntryTitle l
+
+htmlFormatCommitLog :: [Git.LogEntry] -> Maybe Text -> H.Html
+htmlFormatCommitLog commits urlPrefix = do
+    H.p "Commits:"
+    (H.table . H.tbody) $ mapM_ (H.tr . htmlFormatCommit urlPrefix) commits
+    return ()
+
 attemptBranch :: FilePath -> [String] -> Branch -> Proposal -> EShell ()
 attemptBranch logDir cmd branch proposal = do
+    Git.fetch
+
+    liftIO $ putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
+    liftIO $ putStrLn "Commits: "
+    commits <- Git.log (proposalBranchBase proposal) (RefBranch branch)
+    liftIO $ mapM_ print commits
+
+    commitLogHtml <- htmlFormatCommitLog commits <$> Git.remoteUrl origin
+    sendProposalEmail proposal "Attempting to merge" commitLogHtml Nothing
+
     -- cleanup leftover state from previous runs
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
-    Git.fetch
     resetLocalOnto proposal
 
-    liftIO $ putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
     remoteBranches <- Git.remoteBranches
 
     let niceBranchName = mkBranchName $ slingPrefix <> "/work/" <> fromBranchName (proposalName proposal)
@@ -137,9 +165,6 @@ attemptBranch logDir cmd branch proposal = do
     Git.checkout niceBranch
     Git.reset Git.ResetHard (RefBranch branch)
 
-    liftIO $ putStrLn "Commits: "
-    commits <- Git.log (proposalBranchBase proposal) (RefBranch branch)
-    liftIO $ mapM_ print commits
 
     -- Rebase onto target
     Git.rebase (proposalBranchBase proposal) remoteOnto

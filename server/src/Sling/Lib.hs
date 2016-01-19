@@ -71,7 +71,7 @@ singleMatch m = safe head . match m
 mustMatch :: Pattern b -> Text -> EShell b
 mustMatch p t =
     case singleMatch p t of
-        Nothing -> abort $ "Failed to parse: " <> t
+        Nothing -> abort $ "Failed to parse: '" <> t <> "'"
         Just x -> return x
 
 notSpace :: Pattern Char
