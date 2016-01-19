@@ -192,7 +192,6 @@ isMergeCommit ref = do
         Just 1 -> return False
         _ -> return True -- more than one parent
 
-
 log :: Ref -> Ref -> EShell [(Ref, Text)]
 log base top = do
     let onelinePat = do

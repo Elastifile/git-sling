@@ -4,17 +4,15 @@ module Sling.Proposal where
 import           Data.Text           (Text)
 import qualified Data.Text           as T
 import qualified Sling.Git           as Git
-import           Sling.Lib           (Email (..), Hash, NatInt, NonEmptyText,
-                                      formatEmail, formatSepEmail, fromHash,
+import           Sling.Lib           (Email (..), NatInt, formatSepEmail,
                                       fromNatInt, fromNonEmptyText, hash,
                                       natInt, nonEmptyText, singleMatch,
                                       someText)
 
 import           Control.Applicative ((<|>))
 import           Data.Monoid         ((<>))
-import           Turtle              (Pattern, alphaNum, anyChar, char, decimal,
-                                      digit, hexDigit, match, notChar, oneOf,
-                                      satisfy, some, text, eof)
+import           Turtle              (Pattern, alphaNum, char, decimal, eof,
+                                      hexDigit, notChar, oneOf, some, text)
 
 data ProposalStatus = ProposalProposed | ProposalRejected
       deriving (Show, Eq, Ord)
@@ -37,10 +35,6 @@ data Proposal
       }
       deriving (Show, Eq)
 
-escape = T.replace "/" "/"
-unescape = T.replace "/" "/"
-
-
 formatProposal :: Proposal -> Text
 formatProposal p = prefix <> suffix
     where
@@ -50,9 +44,9 @@ formatProposal p = prefix <> suffix
                 ProposalRejected -> rejectBranchPrefix
         suffix =
             T.pack (show . fromNatInt . proposalQueueIndex $ p)
-            <> "/" <> escape (Git.fromBranchName $ proposalName p)
+            <> "/" <> (Git.fromBranchName $ proposalName p)
             <> "/base/" <> (formatRef $ proposalBranchBase p)
-            <> "/onto/" <> (escape . Git.fromBranchName $ proposalBranchOnto p)
+            <> "/onto/" <> (Git.fromBranchName $ proposalBranchOnto p)
             <> "/user/" <> formatSepEmail "-at-" (proposalEmail p)
 
 refPat :: Pattern Git.Ref
@@ -63,27 +57,27 @@ refPat =
      <|> ((text "R-") *> (Git.RefBranch <$> remoteBranchPat))
      <|> ((text "L-") *> (Git.RefBranch . Git.LocalBranch <$> branchNamePat))
     where
-        branchNamePat = Git.mkBranchName . unescape . T.pack <$> some (notChar '^')
+        branchNamePat = Git.mkBranchName . T.pack <$> some (notChar '^')
         remoteBranchPat =
             Git.RemoteBranch <$> (Git.Remote . nonEmptyText . T.pack <$> some (notChar '/')) <*> (char '/' *> branchNamePat)
 
 
 formatRef :: Git.Ref -> Text
 formatRef (Git.RefParent r n) = (T.pack . show $ fromNatInt n) <> "^" <> formatRef r
-formatRef (Git.RefBranch (Git.RemoteBranch r n)) = "R-" <> (escape $ fromNonEmptyText $ Git.remoteName r) <> "/" <> (escape $ Git.fromBranchName n)
-formatRef r@(Git.RefBranch (Git.LocalBranch{})) = "L-" <> (escape $ Git.refName r)
-formatRef r = escape $ Git.refName r
+formatRef (Git.RefBranch (Git.RemoteBranch r n)) = "R-" <> (fromNonEmptyText $ Git.remoteName r) <> "/" <> (Git.fromBranchName n)
+formatRef r@(Git.RefBranch (Git.LocalBranch{})) = "L-" <> (Git.refName r)
+formatRef r = Git.refName r
 
 proposalPat :: Pattern Proposal
 proposalPat = do
     ps <- (text proposedPrefix *> pure ProposalProposed) <|> (text rejectBranchPrefix *> pure ProposalRejected)
     index <- natInt <$> decimal
     _ <- char '/'
-    name <- Git.mkBranchName . unescape <$> someText
+    name <- Git.mkBranchName <$> someText
     _ <- text "/base/"
     baseRef <- refPat
     _ <- text "/onto/"
-    ontoRef <- Git.mkBranchName . unescape <$> someText
+    ontoRef <- Git.mkBranchName <$> someText
     _ <- text "/user/"
     email <- emailPat "-at-"
     _ <- eof

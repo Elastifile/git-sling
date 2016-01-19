@@ -2,47 +2,47 @@
 {-# LANGUAGE TupleSections     #-}
 module Main where
 
-import           Control.Monad (forM_, when)
-import           Control.Monad.Error (MonadError (..))
-import           Control.Monad.IO.Class (liftIO)
-import           Data.Maybe (catMaybes)
-import           Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Lazy as L
-import           Data.Text.Lazy.Encoding (decodeUtf8)
-import qualified Data.ByteString.Lazy as LBS
-import           Sling.Git              (Branch (..), BranchName, Ref (..),
-                                         Remote (..), branchFullName,
-                                         branchName, fromBranchName,
-                                         mkBranchName)
-import qualified Sling.Git as Git
-import           Sling.Lib              (EShell, NonEmptyText, abort, eview,
-                                         fromNonEmptyText, ignoreError, eprocs, eprocsIn,
-                                         nonEmptyText, notSpace, runEShell,
-                                         singleMatch)
-import           Sling.Lib (eprocsL, formatEmail)
+import           Control.Monad                 (forM_, when)
+import           Control.Monad.Except          (MonadError (..))
+import           Control.Monad.IO.Class        (liftIO)
+import qualified Data.ByteString.Lazy          as LBS
+import           Data.Maybe                    (catMaybes)
+import           Data.Text                     (Text)
+import qualified Data.Text                     as T
+import qualified Data.Text.Lazy                as L
+import           Data.Text.Lazy.Encoding       (decodeUtf8)
+import           Sling.Git                     (Branch (..), Ref (..),
+                                                Remote (..), branchName,
+                                                fromBranchName, mkBranchName)
+import qualified Sling.Git                     as Git
+import           Sling.Lib                     (EShell, Email (..), abort,
+                                                eprocsIn, eprocsL, formatEmail,
+                                                ignoreError, runEShell)
 import           Sling.Proposal
-import           Turtle (ExitCode, (&))
+import           Turtle                        (ExitCode, (&))
 
-import qualified Data.List as List
-import           Data.Monoid (mempty, (<>))
-import           System.Environment (getArgs)
-import           System.IO.Temp (createTempDirectory)
-import qualified Network.Mail.Mime as Mail
-import           Network.Mail.Mime (Mail)
-import Text.Blaze.Html (toHtml)
-import Text.Blaze.Html.Renderer.Utf8 (renderHtml)
+import qualified Data.List                     as List
+import           Data.Monoid                   ((<>))
+import           Network.Mail.Mime             (Mail)
+import qualified Network.Mail.Mime             as Mail
+import           System.Environment            (getArgs)
+import           System.IO.Temp                (createTempDirectory)
+import           Text.Blaze.Html               (toHtml)
+import           Text.Blaze.Html.Renderer.Utf8 (renderHtml)
 
 runPrepush :: FilePath -> [String] -> Ref -> Ref -> EShell ()
 runPrepush logFile cmd baseR headR = do
     let args = T.intercalate " " $ (map T.pack cmd) ++ [Git.refName baseR, Git.refName headR]
     liftIO $ putStrLn . T.unpack $ "Executing bash with: " <> args <> " output goes to: " <> (T.pack logFile)
-    output <- eprocsL "bash" ["-c", args <> " &>" <> (T.pack logFile)]
+    _output <- eprocsL "bash" ["-c", args <> " &>" <> (T.pack logFile)]
     -- TODO delete log if successful?
     return ()
 
 origin :: Remote
 origin = Remote "origin"
+
+sourceEmail :: Email
+sourceEmail = Email "elasti-prepush" "elastifile.com"
 
 resetLocalOnto :: Proposal -> EShell ()
 resetLocalOnto proposal = do
@@ -61,7 +61,7 @@ sendProposalEmail :: Proposal -> Text -> Text -> Maybe FilePath -> EShell ()
 sendProposalEmail proposal subject body logFile = do
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
-        (Mail.Address Nothing $ "elasti-prepush@elastifile.com")
+        (Mail.Address Nothing $ formatEmail sourceEmail)
         ((fromBranchName $ proposalName proposal) <> ": " <> subject)
         (L.fromStrict body)
         "" []
@@ -72,12 +72,12 @@ sendProposalEmail proposal subject body logFile = do
 
     renderdBS <- (liftIO $ Mail.renderMail' mail)
     let msmtp_conf_file = "/opt/msmtp.conf"
-    eprocsIn "msmtp" ["-C", msmtp_conf_file, formatEmail $ proposalEmail proposal] $ return (L.toStrict $ decodeUtf8 renderdBS)
+    _ <- eprocsIn "msmtp" ["-C", msmtp_conf_file, formatEmail $ proposalEmail proposal] $ return (L.toStrict $ decodeUtf8 renderdBS)
     return ()
 
 
 abortAttempt :: Proposal -> ExitCode -> EShell ()
-abortAttempt proposal err = do
+abortAttempt proposal _err = do
     liftIO $ putStrLn "ABORTING..."
     sendProposalEmail proposal "Aborting" "" Nothing
     Git.rebaseAbort & ignoreError
@@ -120,11 +120,17 @@ attemptBranch logDir cmd branch proposal = do
     resetLocalOnto proposal
 
     liftIO $ putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
+    remoteBranches <- Git.remoteBranches
 
     let niceBranchName = mkBranchName $ slingPrefix <> "/work/" <> fromBranchName (proposalName proposal)
         niceBranch = LocalBranch $ niceBranchName
         ontoBranchName = proposalBranchOnto proposal
         remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
+        verifyRemoteBranch rb =
+            when (not $ elem rb remoteBranches)
+            $ abort $ "No remote branch: " <> T.pack (show rb)
+
+    verifyRemoteBranch (origin, ontoBranchName)
 
     Git.deleteBranch niceBranch & ignoreError
     (Git.createLocalBranch niceBranchName RefHead >> pure ()) & ignoreError
@@ -193,16 +199,13 @@ main = runEShell $ do
         abort "No prepush command given!"
     Git.fetch
     remoteBranches <- Git.remoteBranches
-    let verifyRemoteBranch rb =
-            when (not $ elem rb remoteBranches)
-            $ abort $ "No remote branch: " <> T.pack (show rb)
 
     let proposedBranches =
             List.sort
             $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ snd b))
             $ remoteBranches
 
-    liftIO $ mapM print proposedBranches
+    liftIO $ mapM_ print proposedBranches
     forM_ (catMaybes
            $ map (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches))
            (uncurry $ attemptBranchOrAbort prepushCmd)

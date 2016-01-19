@@ -1,15 +1,17 @@
 {-# LANGUAGE TemplateHaskell #-}
-import           Control.Monad (replicateM)
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
+import           Control.Monad   (replicateM)
 import           Test.QuickCheck
 
-import qualified Data.Text as T
+import qualified Data.Text       as T
 
-import           Data.Char (isAlphaNum)
+import           Data.Char       (isAlphaNum)
 
-import           Sling.Proposal
+import           Data.DeriveTH
 import           Sling.Git
 import           Sling.Lib
-import           Data.DeriveTH
+import           Sling.Proposal
 
 -- ----------------------------------------------------------------------
 
@@ -29,6 +31,7 @@ instance Arbitrary NatInt where
     arbitrary = NatInt . getNonNegative <$> arbitrary
     shrink = map NatInt . filter (>=0) . shrink . fromNatInt
 
+hexDigits :: Gen Char
 hexDigits = elements (['0'..'9'] ++ ['A'..'F'])
 
 instance Arbitrary Hash where
@@ -40,6 +43,7 @@ instance Arbitrary Hash where
 -- Determined 'empirically' :(
 -- TODO: this is too permissive. See 'man git-check-ref-format' or
 -- https://www.kernel.org/pub/software/scm/git/docs/git-check-ref-format.html
+branchChars :: Gen Char
 branchChars = elements (['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-/_\\.!@#$%&")
 
 instance Arbitrary BranchName where
@@ -50,6 +54,7 @@ instance Arbitrary BranchName where
 
 -- Determined 'empirically' :(
 -- too restrictive?
+remoteChars :: Gen Char
 remoteChars = elements (['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_!@#$%&")
 
 instance Arbitrary Remote where
@@ -58,6 +63,7 @@ instance Arbitrary Remote where
         replicateM l remoteChars
     shrink (Remote x) = map Remote . shrink $ x
 
+stupidEnsureNotEmpty :: String -> String
 stupidEnsureNotEmpty [] = "X"
 stupidEnsureNotEmpty xs = xs
 
@@ -77,6 +83,8 @@ derive makeArbitrary ''Ref
 -- ----------------------------------------------------------------------
 
 return []
+
+runTests :: IO Bool
 runTests = $quickCheckAll
 
 main :: IO ()
