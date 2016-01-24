@@ -134,6 +134,14 @@ git config user.email | grep "\-at\-" && \
 EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
 REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH/base/$BASE_COMMIT/$ONTO_PREFIX/$ONTO_BRANCH/user/$EMAIL"
 
+COMMIT_COUNT=$(git log --oneline $BASE_COMMIT..HEAD | wc -l)
+
+if [ $COMMIT_COUNT = "0" ] ; then
+    echo
+    echo "WARNING: No commits to send! Aborting."
+    exit 1
+fi
+
 echo "Proposing: $PROPOSED_BRANCH"
 echo "Commits:"
 echo
