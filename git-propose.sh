@@ -32,9 +32,12 @@ suggest_upgrade() {
     fi
 }
 
-(cd $SCRIPT_DIR \
-        && git log master..origin/master --decorate --oneline | grep master \
-        && suggest_upgrade || true)
+check_for_upgrade() {
+    cd $SCRIPT_DIR;
+    git fetch -p
+    git log master..origin/master --decorate --oneline | grep master \
+        && suggest_upgrade || true;
+}
 
 show_usage() {
     echo "Usage: git propose <integration branch on remote> [--dry-run]"
@@ -99,6 +102,11 @@ if [ -z "$ONTO_BRANCH" ]; then
     exit 1
 fi
 
+echo "Fetching..."
+git fetch -p &
+check_for_upgrade &
+wait
+
 set -o pipefail
 
 git check-ref-format refs/heads/$ONTO_BRANCH > /dev/null || abort_bad_name
@@ -107,8 +115,6 @@ git branch -r | grep $ONTO_BRANCH > /dev/null || abort_bad_name
 git describe --dirty --all | grep -E ".*-dirty$"  > /dev/null && abort_unclean
 PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-echo "Fetching..."
-git fetch -p
 git branch --merged HEAD -r | grep " *origin/$ONTO_BRANCH\$"  > /dev/null || abort_not_rebased
 BASE_COMMIT="$(git log -1 origin/$ONTO_BRANCH --format=%h)"
 
