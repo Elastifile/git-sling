@@ -79,6 +79,7 @@ prompt() {
 
 IS_DRY_RUN=false
 ONTO_PREFIX="onto"
+ONTO_BRANCH=""
 for arg in "$@"; do
     case $arg in
         --dry-run)
@@ -91,7 +92,7 @@ for arg in "$@"; do
     esac
 done
 
-if [ $ONTO_BRANCH == "" ]; then
+if [ -z "$ONTO_BRANCH" ]; then
     show_usage
     echo
     echo "ERROR: target branch not specified."

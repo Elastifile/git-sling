@@ -140,7 +140,7 @@ proposalEmailHeader proposal commits baseUrl = do
     H.p $ do
         H.span "Onto branch: "
         H.b (fromString . T.unpack . fromBranchName . proposalBranchOnto $ proposal)
-        when (proposalDryRun proposal) $ H.span "(Dry run)"
+        when (proposalDryRun proposal) $ H.span " (Dry run only, branch not moved)"
     htmlFormatCommitLog commits baseUrl
 
 attemptBranch :: FilePath -> [String] -> Branch -> Proposal -> EShell ()
