@@ -185,6 +185,28 @@ logit fetch -p
 git log --oneline origin/integration | grep "integration_test" || fail "Expected integration branch to include the new commit"
 git log --oneline origin/master | grep "integration_test" && fail "Expected master branch to NOT include the new commit"
 
+echo "----------------------------------------------------------------------"
+
+git checkout master
+git reset --hard origin/master
+git checkout -b dry_run_test
+
+add_commit_file dry_run_test
+
+# with --dry-run, no need for piping 'yes'
+run_cmd $sling_dir/git-propose.sh master --dry-run
+
+cd_server
+
+echo "Expecting success..."
+run_cmd $sling_server $prepush || fail "ERROR: Server should succeed!"
+
+cd_client
+
+logit fetch -p
+
+git log --oneline origin/master | grep "dry_run_test" && fail "Expected master branch to NOT include the new commit"
+
 
 echo "----------------------------------------------------------------------"
 echo '

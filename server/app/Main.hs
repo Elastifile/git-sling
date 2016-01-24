@@ -65,7 +65,9 @@ sendProposalEmail proposal subject body logFile = do
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
         (Mail.Address Nothing $ formatEmail sourceEmail)
-        (fromBranchName (proposalName proposal) <> " (" <> formatProposal proposal <> ")")
+        ((if proposalDryRun proposal then "(dry run) " else "")
+         <> fromBranchName (proposalName proposal)
+         <> " (" <> formatProposal proposal <> ")")
         ""
         (renderHtml $ do
                 H.p . H.b $ fromString $ T.unpack subject
@@ -138,6 +140,7 @@ proposalEmailHeader proposal commits baseUrl = do
     H.p $ do
         H.span "Onto branch: "
         H.b (fromString . T.unpack . fromBranchName . proposalBranchOnto $ proposal)
+        when (proposalDryRun proposal) $ H.span "(Dry run)"
     htmlFormatCommitLog commits baseUrl
 
 attemptBranch :: FilePath -> [String] -> Branch -> Proposal -> EShell ()
@@ -150,7 +153,10 @@ attemptBranch logDir cmd branch proposal = do
     liftIO $ mapM_ print commits
 
     commitLogHtml <- proposalEmailHeader proposal commits <$> Git.remoteUrl origin
-    sendProposalEmail proposal "Attempting to merge" commitLogHtml Nothing
+    let title = if proposalDryRun proposal
+                then "Running dry run"
+                else "Attempting to merge"
+    sendProposalEmail proposal title commitLogHtml Nothing
 
     -- cleanup leftover state from previous runs
     Git.rebaseAbort & ignoreError
@@ -204,10 +210,14 @@ attemptBranch logDir cmd branch proposal = do
 
     liftIO $ putStrLn . T.unpack $ "Updating: " <> fromBranchName ontoBranchName
     Git.checkout (LocalBranch ontoBranchName) -- in case script moved git
-    -- TODO ensure not dirty
-    Git.push -- TODO -u origin master
 
-    sendProposalEmail proposal "Merged successfully" "" (Just logFileName)
+    if proposalDryRun proposal
+    then do
+        sendProposalEmail proposal "Dry-run: Prepush ran successfully" "" (Just logFileName)
+    else do
+        -- TODO ensure not dirty
+        Git.push -- TODO -u origin master
+        sendProposalEmail proposal "Merged successfully" "" (Just logFileName)
 
     -- TODO delete logfile name
 

@@ -32,8 +32,15 @@ data Proposal
       , proposalBranchOnto :: Git.BranchName
       , proposalQueueIndex :: NatInt
       , proposalStatus     :: ProposalStatus
+      , proposalDryRun     :: Bool
       }
       deriving (Show, Eq)
+
+ontoPrefix :: Text
+ontoPrefix = "onto"
+
+dryRunOntoPrefix :: Text
+dryRunOntoPrefix = "dry-run-onto"
 
 formatProposal :: Proposal -> Text
 formatProposal p = prefix <> suffix
@@ -46,7 +53,8 @@ formatProposal p = prefix <> suffix
             T.pack (show . fromNatInt . proposalQueueIndex $ p)
             <> "/" <> Git.fromBranchName (proposalName p)
             <> "/base/" <> formatRef (proposalBranchBase p)
-            <> "/onto/" <> Git.fromBranchName (proposalBranchOnto p)
+            <> "/" <> (if proposalDryRun p then dryRunOntoPrefix else ontoPrefix)  <> "/"
+            <> Git.fromBranchName (proposalBranchOnto p)
             <> "/user/" <> formatSepEmail "-at-" (proposalEmail p)
 
 refPat :: Pattern Git.Ref
@@ -76,12 +84,14 @@ proposalPat = do
     name <- Git.mkBranchName <$> someText
     _ <- text "/base/"
     baseRef <- refPat
-    _ <- text "/onto/"
+    _ <- char '/'
+    isDryRun <- (text ontoPrefix *> pure False) <|> (text dryRunOntoPrefix *> pure True)
+    _ <- char '/'
     ontoRef <- Git.mkBranchName <$> someText
     _ <- text "/user/"
     email <- emailPat "-at-"
     _ <- eof
-    return $ Proposal email name baseRef ontoRef index ps
+    return $ Proposal email name baseRef ontoRef index ps isDryRun
 
 parseProposal :: Text -> Maybe Proposal
 parseProposal = singleMatch proposalPat

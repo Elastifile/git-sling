@@ -37,20 +37,14 @@ suggest_upgrade() {
         && suggest_upgrade || true)
 
 show_usage() {
-    echo "Usage: git propose <integration branch on remote>"
+    echo "Usage: git propose <integration branch on remote> [--dry-run]"
     echo ""
     echo "For example, to merge to master use:"
-    echo "> git propose master"
+    echo -e "\n\t> git propose master\n"
+    echo "Or to just check if your branch can rebase & build over 'my_integration', use:"
+    echo -e "\n\t> git propose my_integration --dry-run\n"
     echo "(Note, you shouldn't add the 'origin/' prefix.)"
 }
-
-if [ "$#" -ne 1 ]; then
-    show_usage
-    exit 1
-fi
-
-ONTO_BRANCH="$1"
-set -o pipefail
 
 abort_bad_name() {
     show_usage
@@ -82,6 +76,30 @@ prompt() {
         exit 1
     fi
 }
+
+IS_DRY_RUN=false
+ONTO_PREFIX="onto"
+for arg in "$@"; do
+    case $arg in
+        --dry-run)
+            ONTO_PREFIX="dry-run-onto"
+            IS_DRY_RUN=true
+            ;;
+        *)
+            ONTO_BRANCH="$arg"
+            ;;
+    esac
+done
+
+if [ $ONTO_BRANCH == "" ]; then
+    show_usage
+    echo
+    echo "ERROR: target branch not specified."
+    exit 1
+fi
+
+set -o pipefail
+
 git check-ref-format refs/heads/$ONTO_BRANCH > /dev/null || abort_bad_name
 git branch -r | grep $ONTO_BRANCH > /dev/null || abort_bad_name
 
@@ -107,7 +125,7 @@ git config user.email | grep "\-at\-" && \
       echo " we don't support    that!";
       exit 1)
 EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
-REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH/base/$BASE_COMMIT/onto/$ONTO_BRANCH/user/$EMAIL"
+REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH/base/$BASE_COMMIT/$ONTO_PREFIX/$ONTO_BRANCH/user/$EMAIL"
 
 echo "Proposing: $PROPOSED_BRANCH"
 echo "Commits:"
@@ -117,7 +135,11 @@ git log --oneline $BASE_COMMIT..HEAD | cat
 
 echo
 
-prompt "Are these the commits you want to propose for $ONTO_BRANCH?"
+if $IS_DRY_RUN ; then
+    echo "Sending commits for dry run (will not change $ONTO_BRANCH)."
+else
+    prompt "Are these the commits you want to propose for $ONTO_BRANCH?"
+fi
 
 git push origin "HEAD:$REMOTE_BRANCH"
 
