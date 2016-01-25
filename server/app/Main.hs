@@ -180,7 +180,6 @@ attemptBranch logDir cmd branch proposal = do
     Git.checkout niceBranch
     Git.reset Git.ResetHard (RefBranch branch)
 
-
     -- Rebase onto target
     Git.rebase (proposalBranchBase proposal) remoteOnto
         `catchError` rejectProposal proposal "Rebase failed" Nothing
@@ -202,6 +201,13 @@ attemptBranch logDir cmd branch proposal = do
         Git.commitAmend (proposalEmail proposal) Git.RefHead
 
     finalHead <- Git.currentRef
+
+    -- Fast-forward the work branch to match the merged 'onto' we do
+    -- this so that the prepush script will see itself running on a
+    -- branch with the name the user gave to this proposal, and not
+    -- the onto branch's name.
+    Git.checkout niceBranch
+    Git.merge Git.MergeFFOnly (LocalBranch ontoBranchName)
 
     -- DO IT!
     logFileName <- T.unpack . head <$> eprocsL "mktemp" ["-p", T.pack logDir, "prepush.XXXXXXX.txt"]
