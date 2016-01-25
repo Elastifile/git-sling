@@ -165,7 +165,7 @@ attemptBranch logDir cmd branch proposal = do
 
     remoteBranches <- Git.remoteBranches
 
-    let niceBranchName = mkBranchName $ slingPrefix <> "/work/" <> fromBranchName (proposalName proposal)
+    let niceBranchName = proposalName proposal
         niceBranch = LocalBranch niceBranchName
         ontoBranchName = proposalBranchOnto proposal
         remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
