@@ -209,6 +209,29 @@ git log --oneline origin/master | grep "dry_run_test" && fail "Expected master b
 
 
 echo "----------------------------------------------------------------------"
+
+git checkout master
+git reset --hard origin/master
+
+# do stuff directly over master:
+
+add_commit_file directly_on_master
+
+yes | run_cmd $sling_dir/git-propose.sh master
+
+cd_server
+
+echo "Expecting success..."
+run_cmd $sling_server $prepush || fail "ERROR: Server should succeed!"
+
+cd_client
+
+logit fetch -p
+
+git log --oneline origin/master | grep "directly_on_master" || fail "Expected master branch to include the new commit"
+
+echo "----------------------------------------------------------------------"
+
 echo '
  #####  #     #  #####   #####  #######  #####   #####
 #     # #     # #     # #     # #       #     # #     #

@@ -2,7 +2,7 @@
 module Sling.Git where
 
 import           Control.Applicative    ((<|>))
-import           Control.Monad          (join)
+import           Control.Monad          (join, when)
 import           Control.Monad.IO.Class (liftIO)
 import           Data.Maybe             (mapMaybe)
 import           Data.Monoid            ((<>))
@@ -159,7 +159,9 @@ deleteLocalBranch :: BranchName -> EShell ()
 deleteLocalBranch name = git ["branch", "-D", fromBranchName name] >> pure ()
 
 deleteRemoteBranch :: Remote -> BranchName -> EShell ()
-deleteRemoteBranch r n = git ["push", "--delete", fromNonEmptyText $ remoteName r, fromBranchName n] >> pure ()
+deleteRemoteBranch r n = do
+    when (n == mkBranchName "master") $ abort "Refusing to delete remote master!"
+    git ["push", "--delete", fromNonEmptyText $ remoteName r, fromBranchName n] >> pure ()
 
 deleteBranch :: Branch -> EShell ()
 deleteBranch branch =

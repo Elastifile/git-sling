@@ -175,12 +175,21 @@ attemptBranch logDir cmd branch proposal = do
 
     verifyRemoteBranch (origin, ontoBranchName)
 
+    -- note: 'nice' branch and 'onto' branch may be the same
+    -- branch. (e.g. proposal called 'master' with onto=master)
+
+    -- sync local onto with remote
+    Git.checkout (LocalBranch ontoBranchName)
+    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
+    finalBase <- Git.currentRef
+
+    -- create local work branch, reset to proposed
     Git.deleteBranch niceBranch & ignoreError
     (Git.createLocalBranch niceBranchName RefHead >> pure ()) & ignoreError
     Git.checkout niceBranch
     Git.reset Git.ResetHard (RefBranch branch)
 
-    -- Rebase onto target
+    -- rebase work onto target
     Git.rebase (proposalBranchBase proposal) remoteOnto
         `catchError` rejectProposal proposal "Rebase failed" Nothing
 
@@ -188,9 +197,10 @@ attemptBranch logDir cmd branch proposal = do
     commitsAfter <- Git.log (proposalBranchBase proposal) (RefBranch branch)
     liftIO $ mapM_ print commitsAfter
 
+    -- go back to 'onto', decide whether to create a merge commit on
+    -- top (if we should merge ff only)
     Git.checkout (LocalBranch ontoBranchName)
-    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
-    finalBase <- Git.currentRef
+
     isMerge <- Git.isMergeCommit (RefBranch branch)
     let mergeFF =
             if isMerge || (length commits == 1)
@@ -215,7 +225,10 @@ attemptBranch logDir cmd branch proposal = do
         `catchError` rejectProposal proposal "Prepush command failed" (Just logFileName)
 
     liftIO $ putStrLn . T.unpack $ "Updating: " <> fromBranchName ontoBranchName
-    Git.checkout (LocalBranch ontoBranchName) -- in case script moved git
+
+    Git.checkout (LocalBranch ontoBranchName)
+    when (niceBranchName /= ontoBranchName) $
+        Git.deleteLocalBranch niceBranchName & ignoreError
 
     if proposalDryRun proposal
     then do
@@ -228,8 +241,6 @@ attemptBranch logDir cmd branch proposal = do
     -- TODO delete logfile name
 
     liftIO $ putStrLn "Deleting proposal branch..."
-    Git.deleteLocalBranch niceBranchName
-    Git.deleteRemoteBranch origin niceBranchName & ignoreError
     Git.deleteBranch branch
 
     liftIO $ putStrLn . T.unpack $ "Finished handling proposal " <> formatProposal proposal
