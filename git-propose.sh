@@ -32,11 +32,17 @@ suggest_upgrade() {
     fi
 }
 
-check_for_upgrade() {
-    cd $SCRIPT_DIR;
+fetch_sling() {
+    cd $SCRIPT_DIR
     git fetch -p
+    cd -
+}
+
+check_for_upgrade() {
+    cd $SCRIPT_DIR
     git log master..origin/master --decorate --oneline | grep master \
         && suggest_upgrade || true;
+    cd -
 }
 
 show_usage() {
@@ -104,8 +110,10 @@ fi
 
 echo "Fetching..."
 git fetch -p &
-check_for_upgrade &
+fetch_sling &
 wait
+
+check_for_upgrade
 
 set -o pipefail
 
