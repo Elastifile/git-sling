@@ -13,6 +13,20 @@ SCRIPT_DIR=$(dirname $(realpath $BASH_SOURCE))
 
 source $SCRIPT_DIR/sling-config.sh
 
+in_sling_dir() {
+    (
+        cd $SCRIPT_DIR
+        # when running as via git alias, the env will contain
+        # GIT_WORKDIR and such that make all git commands work on the
+        # repo where the user ran the alias, so doing 'cd' here would
+        # not help; that's why we manually remove the GIT-related env
+        # vars
+        clear_env="unset GIT_DIR GIT_WORK_TREE GIT_PREFIX"
+        (bash -c "$clear_env ; $@")
+        cd - > /dev/null
+    )
+}
+
 suggest_upgrade() {
     upgrade_cmd="cd $SCRIPT_DIR ; git checkout master; git rebase"
     echo "You're in luck! A new version of sling (git propose) is available."
@@ -22,9 +36,7 @@ suggest_upgrade() {
     read answer
     if echo "$answer" | grep -iq "^y" ;
     then
-        set -x
-        bash -c "$upgrade_cmd"
-        set +x
+        in_sling_dir "$upgrade_cmd"
         echo "Please re-run your command now."
         exit 1
     else
@@ -33,16 +45,11 @@ suggest_upgrade() {
 }
 
 fetch_sling() {
-    cd $SCRIPT_DIR
-    git fetch -p
-    cd -
+    in_sling_dir "git fetch -p"
 }
 
 check_for_upgrade() {
-    cd $SCRIPT_DIR
-    git log master..origin/master --decorate --oneline | grep master \
-        && suggest_upgrade || true;
-    cd -
+    in_sling_dir "git log master..origin/master --decorate --oneline | grep master && suggest_upgrade || true"
 }
 
 show_usage() {
