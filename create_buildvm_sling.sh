@@ -58,7 +58,7 @@ configure_git_user() {
 
 configure_stack() {
     curl -sSL https://s3.amazonaws.com/download.fpcomplete.com/centos/7/fpco.repo | sudo tee /etc/yum.repos.d/fpco.repo
-    yum install -y stack
+    sudo yum install -y stack
 }
 
 main() {
