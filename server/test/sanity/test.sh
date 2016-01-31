@@ -201,7 +201,7 @@ cd_server
 echo "Expecting success..."
 run_cmd "$sling_server -- exit 1" && fail "ERROR: Server should fail!"
 run_cmd "$sling_server --no-dry-run -- exit 1" || fail "ERROR: Server should succeed!"
-run_cmd $sling_server $prepush || fail "ERROR: Server should succeed!"
+run_cmd "$sling_server --only-dry-run -- exit 1" || fail "ERROR: Server should succeed!"
 
 cd_client
 

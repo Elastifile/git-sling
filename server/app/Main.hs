@@ -83,6 +83,7 @@ sendProposalEmail options proposal subject body logFile = do
 
     renderdBS <- liftIO $ Mail.renderMail' mail
 
+    liftIO $ putStrLn . T.unpack $ "Sending email to: " <> (formatEmail $ proposalEmail proposal) <> " with subject: " <> subject
     _ <- eprocsIn (head $ optEmailClient options) ((tail $ optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ decodeUtf8 renderdBS)
     return ()
 
@@ -255,10 +256,12 @@ usage = List.intercalate "\n"
     , "where COMMAND is the prepush command to run on each attempted branch."
     ]
 
+data DryRunAllow = DryRunAllowAll | DryRunAllowOnlyDryRun | DryRunAllowNoDryRun
+
 data Options =
     Options
     { optOntoBranchPattern :: String
-    , optAllowDryRun :: Bool
+    , optAllowDryRun :: DryRunAllow
     , optEmailClient :: [Text]
     , optCommandAndArgs :: [String]
     }
@@ -279,7 +282,9 @@ parser = Options
           long "onto-branch-filter" <>
           metavar "PATTERN" <>
           help "Regex pattern to match onto branches. Non-matching branches will be ignored."))
-    <*> (not <$> switch (long "no-dry-run" <> help "Don't process dry-run proposals"))
+    <*> (fromMaybe DryRunAllowAll <$>
+         ((flag Nothing (Just DryRunAllowNoDryRun) (long "no-dry-run" <> help "Don't process dry-run proposals"))
+          <|> (flag Nothing (Just DryRunAllowOnlyDryRun) (long "only-dry-run" <> help "Process ONLY dry-run proposals"))))
     <*> (fmap (fromMaybe defaultEmailClient . fmap (T.words . T.pack)) <$>
          optional $ strOption
          (short 'e' <>
@@ -299,9 +304,13 @@ main = runEShell $ do
     let proposedBranches =
             List.sort
             $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ snd b)) remoteBranches
+        isValidDryRun DryRunAllowAll _  = True
+        isValidDryRun DryRunAllowOnlyDryRun True = True
+        isValidDryRun DryRunAllowNoDryRun False = True
+        isValidDryRun _ _ = False
         shouldConsiderProposal proposal =
             (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ (optOntoBranchPattern options)
-            && (optAllowDryRun options || not (proposalDryRun proposal))
+            && (isValidDryRun (optAllowDryRun options) (proposalDryRun proposal))
         proposals =
             filter (shouldConsiderProposal . snd)
             $ mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches)
