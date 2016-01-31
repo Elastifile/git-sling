@@ -2,6 +2,7 @@
 
 # The script creates build machine for git-sling
 # Should be run by user build
+script_dir=$(dirname $(realpath $0))
 
 function clone_git_sling_repo() {
 
@@ -13,7 +14,7 @@ function clone_git_sling_repo() {
 function configure_cron() {
 
   crontab -r
-  crontab -l | { cat; echo "* * * * * ssh-agent /home/build/git/git-sling/sling-build-cron.sh"; } | crontab -
+  crontab -l | { cat; echo "* * * * * ssh-agent $script_dir/sling-build-cron.sh"; } | crontab -
   crontab -l | { cat; echo "0 0 * * * rm /tmp/core_*"; } | crontab -
 
 }
@@ -68,6 +69,7 @@ main() {
   configure_cron
   create_workdir
   configure_git_user
+  echo "Done."
 }
 
 main "$@"
