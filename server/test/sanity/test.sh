@@ -8,7 +8,7 @@ prepush="./tools/prepush.sh"
 
 sling_dir=$script_dir/../../..
 
-sling_server=$(stack path --project-root)/$(stack path --dist-dir)/build/sling-server-exe/sling-server-exe
+sling_server="$(stack path --project-root)/$(stack path --dist-dir)/build/sling-server-exe/sling-server-exe --email-client $script_dir/send_email.sh"
 
 remote=$(mktemp -d)
 cd $remote
@@ -199,6 +199,8 @@ run_cmd $sling_dir/git-propose.sh master --dry-run
 cd_server
 
 echo "Expecting success..."
+run_cmd "$sling_server -- exit 1" && fail "ERROR: Server should fail!"
+run_cmd "$sling_server --no-dry-run -- exit 1" || fail "ERROR: Server should succeed!"
 run_cmd $sling_server $prepush || fail "ERROR: Server should succeed!"
 
 cd_client
@@ -232,6 +234,43 @@ git log --oneline origin/master | grep "directly_on_master" || fail "Expected ma
 
 echo "----------------------------------------------------------------------"
 
+git checkout master
+git reset --hard origin/master
+
+git checkout -b branch_not_matching
+git push -u origin branch_not_matching
+
+git checkout master
+git checkout -b test_not_matching
+add_commit_file test_not_matching
+
+yes | run_cmd $sling_dir/git-propose.sh branch_not_matching
+
+cd_server
+
+echo "Expecting success..."
+run_cmd $sling_server $prepush -o 'master' || fail "ERROR: Server should succeed!"
+
+cd_client
+
+logit fetch -p
+
+git log --oneline origin/branch_not_matching | grep "test_not_matching" && fail "Expected branch_not_matching branch to NOT include the new commit"
+git log --oneline origin/master              | grep "test_not_matching" && fail "Expected master branch to NOT include the new commit"
+
+cd_server
+
+echo "Expecting success..."
+run_cmd $sling_server $prepush -o '.*not_matching.*' || fail "ERROR: Server should succeed!"
+
+cd_client
+
+logit fetch -p
+
+git log --oneline origin/branch_not_matching | grep "test_not_matching" || fail "Expected branch_not_matching branch to YES include the new commit"
+git log --oneline origin/master              | grep "test_not_matching" && fail "Expected master branch to NOT include the new commit"
+
+echo "----------------------------------------------------------------------"
 echo '
  #####  #     #  #####   #####  #######  #####   #####
 #     # #     # #     # #     # #       #     # #     #

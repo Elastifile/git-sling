@@ -6,7 +6,7 @@ import           Control.Monad (forM_, when, unless, join)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Lazy as LBS
-import           Data.Maybe (mapMaybe)
+import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.String (fromString)
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -20,18 +20,21 @@ import           Sling.Lib                     (EShell, Email (..), abort,
                                                 eprocsIn, eprocsL, formatEmail,
                                                 ignoreError, runEShell, fromHash)
 import           Sling.Proposal
+import           Text.Regex.Posix ((=~))
 import           Turtle (ExitCode, (&))
 
 import qualified Data.List as List
-import           Data.Monoid ((<>))
+
 import           Network.Mail.Mime (Mail)
 import qualified Network.Mail.Mime as Mail
-import           System.Environment (getArgs)
+
 import           System.IO.Temp (createTempDirectory)
 import           Text.Blaze.Html (toHtml, (!))
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
 import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
+
+import           Options.Applicative
 
 runPrepush :: FilePath -> [String] -> Ref -> Ref -> EShell ()
 runPrepush logFile cmd baseR headR = do
@@ -60,8 +63,8 @@ addAttachment ct fn attachedFN mail = do
                (encodeUtf8 ("<html><body><pre>" <> renderHtml (toHtml . L.toStrict $ decodeUtf8 content) <> "</pre></body></html>"))
     return $ Mail.addPart [part] mail
 
-sendProposalEmail :: Proposal -> Text -> H.Html -> Maybe FilePath -> EShell ()
-sendProposalEmail proposal subject body logFile = do
+sendProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe FilePath -> EShell ()
+sendProposalEmail options proposal subject body logFile = do
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
         (Mail.Address Nothing $ formatEmail sourceEmail)
@@ -79,28 +82,28 @@ sendProposalEmail proposal subject body logFile = do
         Just f -> liftIO $ addAttachment "text/html; charset=utf-8" f "log.html" mail1
 
     renderdBS <- liftIO $ Mail.renderMail' mail
-    let msmtp_conf_file = "/opt/msmtp.conf"
-    _ <- eprocsIn "msmtp" ["-C", msmtp_conf_file, formatEmail $ proposalEmail proposal] $ return (L.toStrict $ decodeUtf8 renderdBS)
+
+    _ <- eprocsIn (head $ optEmailClient options) ((tail $ optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ decodeUtf8 renderdBS)
     return ()
 
 
-abortAttempt :: Proposal -> ExitCode -> EShell ()
-abortAttempt proposal _err = do
+abortAttempt :: Options -> Proposal -> ExitCode -> EShell ()
+abortAttempt options proposal _err = do
     liftIO $ putStrLn "ABORTING..."
-    sendProposalEmail proposal "Aborting" "" Nothing
+    sendProposalEmail options proposal "Aborting" "" Nothing
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
     resetLocalOnto proposal
     abort "Aborted"
 
-rejectProposal :: Proposal -> Text -> Maybe FilePath -> ExitCode -> EShell ()
-rejectProposal proposal msg logFile err = do
+rejectProposal :: Options -> Proposal -> Text -> Maybe FilePath -> ExitCode -> EShell ()
+rejectProposal options proposal msg logFile err = do
     let rejectedProposal = proposal { proposalStatus = ProposalRejected }
         rejectBranchName = formatProposal rejectedProposal
         origBranchName = formatProposal proposal
         msgBody = "REJECT " <> origBranchName <> " because: '" <> msg <> "', exit code = " <> T.pack (show err)
     liftIO $ putStrLn . T.unpack $ msgBody
-    sendProposalEmail proposal ("Rejecting (" <> msg <> ")") (toHtml msgBody) logFile
+    sendProposalEmail options proposal ("Rejecting (" <> msg <> ")") (toHtml msgBody) logFile
     Git.fetch & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
     Git.deleteBranch (LocalBranch $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
@@ -113,10 +116,10 @@ rejectProposal proposal msg logFile err = do
     Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
     abort "Rejected"
 
-attemptBranchOrAbort :: [String] -> Branch -> Proposal -> EShell ()
-attemptBranchOrAbort cmd branch proposal = do
+attemptBranchOrAbort :: Options -> Branch -> Proposal -> EShell ()
+attemptBranchOrAbort options branch proposal = do
     dirPath <- liftIO $ createTempDirectory "/tmp" "sling.log"
-    attemptBranch dirPath cmd branch proposal `catchError` abortAttempt proposal
+    attemptBranch options dirPath branch proposal `catchError` abortAttempt options proposal
 
 htmlFormatCommit :: Maybe Text -> Git.LogEntry -> H.Html
 htmlFormatCommit urlPrefix l = do
@@ -143,8 +146,8 @@ proposalEmailHeader proposal commits baseUrl = do
         when (proposalDryRun proposal) $ H.span " (Dry run only, branch not moved)"
     htmlFormatCommitLog commits baseUrl
 
-attemptBranch :: FilePath -> [String] -> Branch -> Proposal -> EShell ()
-attemptBranch logDir cmd branch proposal = do
+attemptBranch :: Options -> FilePath -> Branch -> Proposal -> EShell ()
+attemptBranch options logDir branch proposal = do
     Git.fetch
 
     liftIO $ putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
@@ -156,7 +159,7 @@ attemptBranch logDir cmd branch proposal = do
     let title = if proposalDryRun proposal
                 then "Running dry run"
                 else "Attempting to merge"
-    sendProposalEmail proposal title commitLogHtml Nothing
+    sendProposalEmail options proposal title commitLogHtml Nothing
 
     -- cleanup leftover state from previous runs
     Git.rebaseAbort & ignoreError
@@ -191,7 +194,7 @@ attemptBranch logDir cmd branch proposal = do
 
     -- rebase work onto target
     Git.rebase (proposalBranchBase proposal) remoteOnto
-        `catchError` rejectProposal proposal "Rebase failed" Nothing
+        `catchError` rejectProposal options proposal "Rebase failed" Nothing
 
     liftIO $ putStrLn "Commits (after rebase): "
     commitsAfter <- Git.log (proposalBranchBase proposal) (RefBranch branch)
@@ -221,8 +224,8 @@ attemptBranch logDir cmd branch proposal = do
 
     -- DO IT!
     logFileName <- T.unpack . head <$> eprocsL "mktemp" ["-p", T.pack logDir, "prepush.XXXXXXX.txt"]
-    runPrepush logFileName cmd finalBase finalHead
-        `catchError` rejectProposal proposal "Prepush command failed" (Just logFileName)
+    runPrepush logFileName (optCommandAndArgs options) finalBase finalHead
+        `catchError` rejectProposal options proposal "Prepush command failed" (Just logFileName)
 
     liftIO $ putStrLn . T.unpack $ "Updating: " <> fromBranchName ontoBranchName
 
@@ -232,11 +235,11 @@ attemptBranch logDir cmd branch proposal = do
 
     if proposalDryRun proposal
     then do
-        sendProposalEmail proposal "Dry-run: Prepush ran successfully" "" (Just logFileName)
+        sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just logFileName)
     else do
         -- TODO ensure not dirty
         Git.push -- TODO -u origin master
-        sendProposalEmail proposal "Merged successfully" "" (Just logFileName)
+        sendProposalEmail options proposal "Merged successfully" "" (Just logFileName)
 
     -- TODO delete logfile name
 
@@ -252,22 +255,58 @@ usage = List.intercalate "\n"
     , "where COMMAND is the prepush command to run on each attempted branch."
     ]
 
+data Options =
+    Options
+    { optOntoBranchPattern :: String
+    , optAllowDryRun :: Bool
+    , optEmailClient :: [Text]
+    , optCommandAndArgs :: [String]
+    }
+
+parseOpts :: IO Options
+parseOpts = execParser $
+    info (helper <*> parser)
+    (fullDesc <> header "git-sling - merge branches with due process")
+
+defaultEmailClient :: [Text]
+defaultEmailClient = ["msmtp", "-C", "/opt/msmtp.conf"]
+
+parser :: Parser Options
+parser = Options
+    <$> (fmap (fromMaybe ".*") <$>
+         optional $ strOption
+         (short 'o' <>
+          long "onto-branch-filter" <>
+          metavar "PATTERN" <>
+          help "Regex pattern to match onto branches. Non-matching branches will be ignored."))
+    <*> (not <$> switch (long "no-dry-run" <> help "Don't process dry-run proposals"))
+    <*> (fmap (fromMaybe defaultEmailClient . fmap (T.words . T.pack)) <$>
+         optional $ strOption
+         (short 'e' <>
+          long "email-client" <>
+          metavar "COMMAND" <>
+          help ("Command to use sending emails. Default: " <> (T.unpack $ T.intercalate " " defaultEmailClient))))
+    <*> (some $ argument str
+         (metavar "-- COMMAND" <>
+          help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
+
 main :: IO ()
 main = runEShell $ do
-    prepushCmd <- liftIO getArgs
-    when (null prepushCmd) $ do
-        liftIO $ putStrLn usage
-        abort "No prepush command given!"
+    options <- liftIO $ parseOpts
     Git.fetch
     remoteBranches <- Git.remoteBranches
 
     let proposedBranches =
             List.sort
             $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ snd b)) remoteBranches
-
-    liftIO $ mapM_ print proposedBranches
-    forM_ (mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches))
-           (uncurry $ attemptBranchOrAbort prepushCmd)
+        shouldConsiderProposal proposal =
+            (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ (optOntoBranchPattern options)
+            && (optAllowDryRun options || not (proposalDryRun proposal))
+        proposals =
+            filter (shouldConsiderProposal . snd)
+            $ mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches)
+    liftIO $ mapM_ (putStrLn . show . branchName . fst) proposals
+    forM_ proposals (uncurry $ attemptBranchOrAbort options)
 
 
 
