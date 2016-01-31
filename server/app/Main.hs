@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections     #-}
 module Main where
@@ -256,12 +257,11 @@ usage = List.intercalate "\n"
     , "where COMMAND is the prepush command to run on each attempted branch."
     ]
 
-data DryRunAllow = DryRunAllowAll | DryRunAllowOnlyDryRun | DryRunAllowNoDryRun
-
 data Options =
     Options
-    { optOntoBranchPattern :: String
-    , optAllowDryRun :: DryRunAllow
+    { optBranchFilterAll :: Maybe String
+    , optBranchFilterDryRun :: Maybe String
+    , optBranchFilterNoDryRun :: Maybe String
     , optEmailClient :: [Text]
     , optCommandAndArgs :: [String]
     }
@@ -276,15 +276,18 @@ defaultEmailClient = ["msmtp", "-C", "/opt/msmtp.conf"]
 
 parser :: Parser Options
 parser = Options
-    <$> (fmap (fromMaybe ".*") <$>
-         optional $ strOption
-         (short 'o' <>
-          long "onto-branch-filter" <>
+    <$> (optional $ strOption
+         (long "match-branches" <>
           metavar "PATTERN" <>
-          help "Regex pattern to match onto branches. Non-matching branches will be ignored."))
-    <*> (fromMaybe DryRunAllowAll <$>
-         ((flag Nothing (Just DryRunAllowNoDryRun) (long "no-dry-run" <> help "Don't process dry-run proposals"))
-          <|> (flag Nothing (Just DryRunAllowOnlyDryRun) (long "only-dry-run" <> help "Process ONLY dry-run proposals"))))
+          help "Regex pattern to match 'onto' branch name in any proposal."))
+    <*> (optional $ strOption
+         (long "match-dry-run-branches" <>
+          metavar "PATTERN" <>
+          help "Regex pattern to match 'onto' branch name in dry run proposals."))
+    <*> (optional $ strOption
+         (long "match-non-dry-run-branches" <>
+          metavar "PATTERN" <>
+          help "Regex pattern to match 'onto' branch name in non-dry run proposals."))
     <*> (fmap (fromMaybe defaultEmailClient . fmap (T.words . T.pack)) <$>
          optional $ strOption
          (short 'e' <>
@@ -295,27 +298,41 @@ parser = Options
          (metavar "-- COMMAND" <>
           help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
 
+
+shouldConsiderProposal :: Options -> Proposal -> Bool
+shouldConsiderProposal options proposal =
+    (fromMaybe True $ checkFilter <$> optBranchFilterAll options)
+    && (fromMaybe True $ (isDryRun &&) . checkFilter <$> optBranchFilterDryRun options)
+    && (fromMaybe True $ ((not isDryRun) &&) . checkFilter <$> optBranchFilterNoDryRun options)
+    where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
+          isDryRun = proposalDryRun proposal
+
 main :: IO ()
 main = runEShell $ do
     options <- liftIO $ parseOpts
     Git.fetch
     remoteBranches <- Git.remoteBranches
 
+    liftIO $ putStrLn $ mconcat $ List.intersperse "\n\t"
+        [ "Filters: "
+        , maybe "" ("branch filter: " <> ) (optBranchFilterAll options)
+        , maybe "" ("dry run branch filter: " <> ) (optBranchFilterDryRun options)
+        , maybe "" ("non-dry-run branch filter: " <> ) (optBranchFilterNoDryRun options)
+        ]
     let proposedBranches =
             List.sort
             $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ snd b)) remoteBranches
-        isValidDryRun DryRunAllowAll _  = True
-        isValidDryRun DryRunAllowOnlyDryRun True = True
-        isValidDryRun DryRunAllowNoDryRun False = True
-        isValidDryRun _ _ = False
-        shouldConsiderProposal proposal =
-            (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ (optOntoBranchPattern options)
-            && (isValidDryRun (optAllowDryRun options) (proposalDryRun proposal))
-        proposals =
-            filter (shouldConsiderProposal . snd)
-            $ mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches)
-    liftIO $ mapM_ (putStrLn . show . branchName . fst) proposals
+
+        allProposals =
+            mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches)
+        proposals = filter (shouldConsiderProposal options . snd) allProposals
+
+        showProposals ps = List.intercalate "\n\t" (map (show . branchName . fst) ps)
+
+    liftIO $ putStrLn $ "All proposals (before filtering):\n\t" <> showProposals allProposals
+    liftIO $ putStrLn $ "Going to attempt proposals:\n\t" <> showProposals proposals
     forM_ proposals (uncurry $ attemptBranchOrAbort options)
+    liftIO $ putStrLn $ "Done."
 
 
 

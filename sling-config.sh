@@ -4,3 +4,4 @@ PROPOSED_PREFIX="$SLING_PREFIX/proposed/"
 
 SERVER_WORKDIR="/build-workdir"
 SERVER_LOCKFILE="/tmp/sling.lock"
+SERVER_OPTIONS="--no-dry-run"

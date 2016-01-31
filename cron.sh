@@ -18,6 +18,6 @@ COMMAND="./tools/prepush.sh"
 
     test -d $SERVER_WORKDIR/example-project-system || (cd $SERVER_WORKDIR && git clone git@github.com:Elastifile/example-project-system.git && git submodule update --init)
     cd $SERVER_WORKDIR/example-project-system/example-project
-    "$SLING_SERVER" "$COMMAND"
+    "$SLING_SERVER" "$SERVER_OPTIONS" -- "$COMMAND"
 
 ) 9>$SERVER_LOCKFILE

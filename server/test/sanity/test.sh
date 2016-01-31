@@ -36,6 +36,21 @@ cd_client() {
     cd $workdir/work
 }
 
+run_cmd_fail() {
+    cmd="$@"
+    logfile=$(mktemp)
+    echo "> $cmd"
+    set +e
+    $cmd &> $logfile
+    result="$?"
+    set -e
+    if [ $result -eq "0" ]; then
+        echo "^ Command succeeded (but expecting failure) $?, log=$logfile"
+        exit 1
+    fi
+    rm $logfile
+}
+
 run_cmd() {
     cmd="$@"
     logfile=$(mktemp)
@@ -101,7 +116,7 @@ echo "----------------------------------------------------------------------"
 echo "Testing server in: $serverdir/work"
 # Should fail, no tools/prepush script in repo
 echo "Expecting failure..."
-run_cmd $sling_server $prepush && fail "ERROR: Server should fail!"
+run_cmd_fail $sling_server $prepush || fail "ERROR: Server should fail!"
 
 echo "----------------------------------------------------------------------"
 
@@ -150,7 +165,7 @@ add_commit_file unrebasable "server side"
 logit push
 
 echo "Expecting failure..."
-run_cmd $sling_server $prepush && fail "ERROR: Server should fail (bad rebase)!"
+run_cmd_fail $sling_server $prepush || fail "ERROR: Server should fail (bad rebase)!"
 
 echo "----------------------------------------------------------------------"
 
@@ -182,38 +197,46 @@ cd_client
 
 logit fetch -p
 
-git log --oneline origin/integration | grep "integration_test" || fail "Expected integration branch to include the new commit"
-git log --oneline origin/master | grep "integration_test" && fail "Expected master branch to NOT include the new commit"
+git log --format="%H %s" origin/integration | grep "integration_test" || fail "Expected integration branch to include the new commit"
+git log --format="%H %s" origin/master | grep "integration_test" && fail "Expected master branch to NOT include the new commit"
 
 echo "----------------------------------------------------------------------"
 
-git checkout master
-git reset --hard origin/master
-git checkout -b dry_run_test
+logit checkout master
+logit reset --hard origin/master
+
+logit checkout -b dry_run_test
+git push -u origin dry_run_test
 
 add_commit_file dry_run_test
 
 # with --dry-run, no need for piping 'yes'
+run_cmd $sling_dir/git-propose.sh dry_run_test --dry-run
 run_cmd $sling_dir/git-propose.sh master --dry-run
+
 
 cd_server
 
 echo "Expecting success..."
-run_cmd "$sling_server -- exit 1" && fail "ERROR: Server should fail!"
-run_cmd "$sling_server --no-dry-run -- exit 1" || fail "ERROR: Server should succeed!"
-run_cmd "$sling_server --only-dry-run -- exit 1" || fail "ERROR: Server should succeed!"
+run_cmd      "$sling_server --match-branches             shooki        -- exit 1" || fail "ERROR: Server should succeed!"
+run_cmd      "$sling_server --match-dry-run-branches     shooki        -- exit 1" || fail "ERROR: Server should succeed!"
+run_cmd      "$sling_server --match-non-dry-run-branches dry_run_test  -- exit 1" || fail "ERROR: Server should succeed!"
+run_cmd_fail "$sling_server --match-dry-run-branches     dry_run_test  -- exit 1" || fail "ERROR: Server should fail!"
+# already happened, should succeed:
+run_cmd      "$sling_server --match-dry-run-branches     dry_run_test  -- exit 1" || fail "ERROR: Server should succeed!"
+run_cmd_fail "$sling_server --match-branches             master        -- exit 1" || fail "ERROR: Server should fail!"
 
 cd_client
 
 logit fetch -p
 
-git log --oneline origin/master | grep "dry_run_test" && fail "Expected master branch to NOT include the new commit"
+git log --format="%H %s" origin/master | grep "dry_run_test" && fail "Expected master branch to NOT include the new commit"
 
 
 echo "----------------------------------------------------------------------"
 
-git checkout master
-git reset --hard origin/master
+logit checkout master
+logit reset --hard origin/master
 
 # do stuff directly over master:
 
@@ -230,18 +253,18 @@ cd_client
 
 logit fetch -p
 
-git log --oneline origin/master | grep "directly_on_master" || fail "Expected master branch to include the new commit"
+git log --format="%H %s" origin/master | grep "directly_on_master" || fail "Expected master branch to include the new commit"
 
 echo "----------------------------------------------------------------------"
 
-git checkout master
-git reset --hard origin/master
+logit checkout master
+logit reset --hard origin/master
 
-git checkout -b branch_not_matching
-git push -u origin branch_not_matching
+logit checkout -b branch_not_matching
+logit push -u origin branch_not_matching
 
-git checkout master
-git checkout -b test_not_matching
+logit checkout master
+logit checkout -b test_not_matching
 add_commit_file test_not_matching
 
 yes | run_cmd $sling_dir/git-propose.sh branch_not_matching
@@ -249,26 +272,26 @@ yes | run_cmd $sling_dir/git-propose.sh branch_not_matching
 cd_server
 
 echo "Expecting success..."
-run_cmd $sling_server $prepush -o 'master' || fail "ERROR: Server should succeed!"
+run_cmd $sling_server $prepush --match-branches 'master' || fail "ERROR: Server should succeed!"
 
 cd_client
 
 logit fetch -p
 
-git log --oneline origin/branch_not_matching | grep "test_not_matching" && fail "Expected branch_not_matching branch to NOT include the new commit"
-git log --oneline origin/master              | grep "test_not_matching" && fail "Expected master branch to NOT include the new commit"
+git log --format="%H %s" origin/branch_not_matching | grep "test_not_matching" && fail "Expected branch_not_matching branch to NOT include the new commit"
+git log --format="%H %s" origin/master              | grep "test_not_matching" && fail "Expected master branch to NOT include the new commit"
 
 cd_server
 
 echo "Expecting success..."
-run_cmd $sling_server $prepush -o '.*not_matching.*' || fail "ERROR: Server should succeed!"
+run_cmd $sling_server $prepush --match-branches '.*not_matching.*' || fail "ERROR: Server should succeed!"
 
 cd_client
 
 logit fetch -p
 
-git log --oneline origin/branch_not_matching | grep "test_not_matching" || fail "Expected branch_not_matching branch to YES include the new commit"
-git log --oneline origin/master              | grep "test_not_matching" && fail "Expected master branch to NOT include the new commit"
+git log --format="%H %s" origin/branch_not_matching | grep "test_not_matching" || fail "Expected branch_not_matching branch to YES include the new commit"
+git log --format="%H %s" origin/master              | grep "test_not_matching" && fail "Expected master branch to NOT include the new commit"
 
 echo "----------------------------------------------------------------------"
 echo '
