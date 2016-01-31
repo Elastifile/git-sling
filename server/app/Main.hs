@@ -302,8 +302,8 @@ parser = Options
 shouldConsiderProposal :: Options -> Proposal -> Bool
 shouldConsiderProposal options proposal =
     (fromMaybe True $ checkFilter <$> optBranchFilterAll options)
-    && (fromMaybe True $ (isDryRun &&) . checkFilter <$> optBranchFilterDryRun options)
-    && (fromMaybe True $ ((not isDryRun) &&) . checkFilter <$> optBranchFilterNoDryRun options)
+    && (fromMaybe True $ ((not isDryRun) ||) . checkFilter <$> optBranchFilterDryRun options)
+    && (fromMaybe True $ (isDryRun ||) . checkFilter <$> optBranchFilterNoDryRun options)
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
           isDryRun = proposalDryRun proposal
 
