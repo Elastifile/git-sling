@@ -220,6 +220,7 @@ cd_server
 echo "Expecting success..."
 run_cmd      "$sling_server --match-branches             shooki        -- exit 1" || fail "ERROR: Server should succeed!"
 run_cmd      "$sling_server --match-dry-run-branches     shooki        -- exit 1" || fail "ERROR: Server should succeed!"
+run_cmd      "$sling_server --match-dry-run-branches     '^$'          -- exit 1" || fail "ERROR: Server should succeed!"
 run_cmd      "$sling_server --match-non-dry-run-branches dry_run_test  -- exit 1" || fail "ERROR: Server should succeed!"
 run_cmd_fail "$sling_server --match-dry-run-branches     dry_run_test  -- exit 1" || fail "ERROR: Server should fail!"
 # already happened, should succeed:
