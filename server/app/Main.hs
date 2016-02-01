@@ -34,8 +34,11 @@ import           Text.Blaze.Html (toHtml, (!))
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
 import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
-
+import Control.Concurrent (killThread, threadDelay)
 import           Options.Applicative
+
+pollingInterval :: Int
+pollingInterval = 1000000 * 10
 
 runPrepush :: FilePath -> [String] -> Ref -> Ref -> EShell ()
 runPrepush logFile cmd baseR headR = do
@@ -263,6 +266,7 @@ data Options =
     , optBranchFilterDryRun :: Maybe String
     , optBranchFilterNoDryRun :: Maybe String
     , optEmailClient :: [Text]
+    , optPollingInterval :: Maybe Int
     , optCommandAndArgs :: [String]
     }
 
@@ -294,6 +298,10 @@ parser = Options
           long "email-client" <>
           metavar "COMMAND" <>
           help ("Command to use sending emails. Default: " <> (T.unpack $ T.intercalate " " defaultEmailClient))))
+    <*> (optional $ option auto
+         (short 'd' <>
+          metavar "T" <>
+          long "keep running, polling git status every T seconds"))
     <*> (some $ argument str
          (metavar "-- COMMAND" <>
           help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
@@ -307,9 +315,8 @@ shouldConsiderProposal options proposal =
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
           isDryRun = proposalDryRun proposal
 
-main :: IO ()
-main = runEShell $ do
-    options <- liftIO $ parseOpts
+serverPoll :: Options -> EShell ()
+serverPoll options = do
     Git.fetch
     remoteBranches <- Git.remoteBranches
 
@@ -334,5 +341,19 @@ main = runEShell $ do
     forM_ proposals (uncurry $ attemptBranchOrAbort options)
     liftIO $ putStrLn $ "Done."
 
+serverLoop :: Options -> EShell ()
+serverLoop options = do
+    let go = do
+            serverPoll options
+            case optPollingInterval options of
+                Nothing -> return ()
+                Just d -> do
+                    liftIO $ threadDelay $ d*1000000
+                    go
+    go
 
-
+main :: IO ()
+main = runEShell $ do
+    options <- liftIO $ parseOpts
+    _ <- serverLoop options
+    return ()
