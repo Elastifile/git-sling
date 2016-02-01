@@ -7,6 +7,7 @@ import           Control.Monad (forM_, when, unless, join)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Lazy as LBS
+import           Data.IORef
 import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.String (fromString)
 import           Data.Text (Text)
@@ -21,6 +22,7 @@ import           Sling.Lib                     (EShell, Email (..), abort,
                                                 eprocsIn, eprocsL, formatEmail,
                                                 ignoreError, runEShell, fromHash)
 import           Sling.Proposal
+import           Sling.Web (forkServer, CurrentState(..), emptyCurrentState)
 import           Text.Regex.Posix ((=~))
 import           Turtle (ExitCode, (&))
 
@@ -92,13 +94,17 @@ sendProposalEmail options proposal subject body logFile = do
     return ()
 
 
-abortAttempt :: Options -> Proposal -> ExitCode -> EShell ()
-abortAttempt options proposal _err = do
+clearCurrentProposal :: IORef CurrentState -> IO ()
+clearCurrentProposal currentState = modifyIORef currentState $ \state -> state { csCurrentProposal = Nothing, csCurrentLogFile = Nothing }
+
+abortAttempt :: IORef CurrentState -> Options -> Proposal -> ExitCode -> EShell ()
+abortAttempt currentState options proposal _err = do
     liftIO $ putStrLn "ABORTING..."
     sendProposalEmail options proposal "Aborting" "" Nothing
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
     resetLocalOnto proposal
+    liftIO $ clearCurrentProposal currentState
     abort "Aborted"
 
 rejectProposal :: Options -> Proposal -> Text -> Maybe FilePath -> ExitCode -> EShell ()
@@ -121,10 +127,10 @@ rejectProposal options proposal msg logFile err = do
     Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
     abort "Rejected"
 
-attemptBranchOrAbort :: Options -> Branch -> Proposal -> EShell ()
-attemptBranchOrAbort options branch proposal = do
+attemptBranchOrAbort :: IORef CurrentState -> Options -> Branch -> Proposal -> EShell ()
+attemptBranchOrAbort currentState options branch proposal = do
     dirPath <- liftIO $ createTempDirectory "/tmp" "sling.log"
-    attemptBranch options dirPath branch proposal `catchError` abortAttempt options proposal
+    attemptBranch currentState options dirPath branch proposal `catchError` abortAttempt currentState options proposal
 
 htmlFormatCommit :: Maybe Text -> Git.LogEntry -> H.Html
 htmlFormatCommit urlPrefix l = do
@@ -151,10 +157,11 @@ proposalEmailHeader proposal commits baseUrl = do
         when (proposalDryRun proposal) $ H.span " (Dry run only, branch not moved)"
     htmlFormatCommitLog commits baseUrl
 
-attemptBranch :: Options -> FilePath -> Branch -> Proposal -> EShell ()
-attemptBranch options logDir branch proposal = do
+attemptBranch :: IORef CurrentState -> Options -> FilePath -> Branch -> Proposal -> EShell ()
+attemptBranch currentState options logDir branch proposal = do
     Git.fetch
 
+    liftIO $ modifyIORef currentState $ \state -> state { csCurrentProposal = Just proposal }
     liftIO $ putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
     liftIO $ putStrLn "Commits: "
     commits <- Git.log (proposalBranchBase proposal) (RefBranch branch)
@@ -229,6 +236,7 @@ attemptBranch options logDir branch proposal = do
 
     -- DO IT!
     logFileName <- T.unpack . head <$> eprocsL "mktemp" ["-p", T.pack logDir, "prepush.XXXXXXX.txt"]
+    liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just logFileName }
     runPrepush logFileName (optCommandAndArgs options) finalBase finalHead
         `catchError` rejectProposal options proposal "Prepush command failed" (Just logFileName)
 
@@ -265,6 +273,7 @@ data Options =
     { optBranchFilterAll :: Maybe String
     , optBranchFilterDryRun :: Maybe String
     , optBranchFilterNoDryRun :: Maybe String
+    , optWebServerPort :: Int
     , optEmailClient :: [Text]
     , optPollingInterval :: Maybe Int
     , optCommandAndArgs :: [String]
@@ -277,6 +286,9 @@ parseOpts = execParser $
 
 defaultEmailClient :: [Text]
 defaultEmailClient = ["msmtp", "-C", "/opt/msmtp.conf"]
+
+defaultPort :: Int
+defaultPort = 8080
 
 parser :: Parser Options
 parser = Options
@@ -292,6 +304,12 @@ parser = Options
          (long "match-non-dry-run-branches" <>
           metavar "PATTERN" <>
           help "Regex pattern to match 'onto' branch name in non-dry run proposals."))
+    <*> (option auto
+          (value defaultPort <>
+           short 'p' <>
+           long "port" <>
+           metavar "PORT" <>
+           help ("Port for sling web server. Default: " <> (show defaultPort))))
     <*> (fmap (fromMaybe defaultEmailClient . fmap (T.words . T.pack)) <$>
          optional $ strOption
          (short 'e' <>
@@ -315,8 +333,8 @@ shouldConsiderProposal options proposal =
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
           isDryRun = proposalDryRun proposal
 
-serverPoll :: Options -> EShell ()
-serverPoll options = do
+serverPoll :: IORef CurrentState -> Options -> EShell ()
+serverPoll currentState options = do
     Git.fetch
     remoteBranches <- Git.remoteBranches
 
@@ -338,13 +356,17 @@ serverPoll options = do
 
     liftIO $ putStrLn $ "All proposals (before filtering):\n\t" <> showProposals allProposals
     liftIO $ putStrLn $ "Going to attempt proposals:\n\t" <> showProposals proposals
-    forM_ proposals (uncurry $ attemptBranchOrAbort options)
+
+    liftIO $ modifyIORef currentState $ \state -> state { csPendingProposals = map snd proposals }
+    forM_ proposals (uncurry $ attemptBranchOrAbort currentState options)
+
+    liftIO $ clearCurrentProposal currentState
     liftIO $ putStrLn $ "Done."
 
-serverLoop :: Options -> EShell ()
-serverLoop options = do
+serverLoop :: IORef CurrentState -> Options -> EShell ()
+serverLoop currentState options = do
     let go = do
-            serverPoll options
+            serverPoll currentState options
             case optPollingInterval options of
                 Nothing -> return ()
                 Just d -> do
@@ -355,5 +377,7 @@ serverLoop options = do
 main :: IO ()
 main = runEShell $ do
     options <- liftIO $ parseOpts
-    _ <- serverLoop options
-    return ()
+    currentState <- liftIO $ newIORef emptyCurrentState
+    serverThread <- liftIO $ forkServer (optWebServerPort options) (readIORef currentState)
+    _ <- serverLoop currentState options
+    liftIO $ killThread serverThread
