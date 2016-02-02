@@ -27,29 +27,12 @@ in_sling_dir() {
     )
 }
 
-suggest_upgrade() {
-    upgrade_cmd="cd $SCRIPT_DIR ; git checkout master; git rebase"
-    echo "You're in luck! A new version of sling (git propose) is available."
-    echo "To upgrade, run:"
-    echo $upgrade_cmd
-    echo -n "Should I do this for you? (y/n) "
-    read answer
-    if echo "$answer" | grep -iq "^y" ;
-    then
-        in_sling_dir "$upgrade_cmd"
-        echo "Please re-run your command now."
-        exit 1
-    else
-        echo "Ok, but it may not work."
-    fi
-}
-
 fetch_sling() {
     in_sling_dir "git fetch -p"
 }
 
 check_for_upgrade() {
-    in_sling_dir "git log master..origin/master --decorate --oneline | grep master && suggest_upgrade || true"
+    in_sling_dir "$SCRIPT_DIR/check-for-upgrade.sh"
 }
 
 show_usage() {
