@@ -14,6 +14,7 @@ import Sling.Proposal (Proposal(..), formatProposal)
 import Web.Spock.Simple
 import System.IO (IOMode(..), withFile, hFileSize)
 import System.IO.Error (tryIOError, isEOFError)
+import Data.Time.Clock.POSIX (POSIXTime)
 import Network.Wai (responseFile, FilePart(..))
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
 import qualified Text.Blaze.Html5 as H
@@ -23,7 +24,7 @@ import qualified Data.Text.Lazy as L
 data CurrentState =
     CurrentState
     { csPendingProposals :: [Proposal]
-    , csCurrentProposal :: Maybe Proposal
+    , csCurrentProposal :: Maybe (Proposal, POSIXTime)
     , csCurrentLogFile :: Maybe FilePath
     }
 
@@ -64,8 +65,9 @@ runServer port getCurrentState =
                             H.li (H.text $ formatProposal proposal)
                     H.h4 "Current proposal"
                     case csCurrentProposal state of
-                        Just proposal -> do
+                        Just (proposal, time) -> do
                             H.p . H.text $ formatProposal proposal
+                            H.p . H.text $ "Started: " <> T.pack (show time)
                             H.p $ H.a H.! A.href "/log" $ "Tail of log..."
                         Nothing -> H.em $ H.text "none"
 

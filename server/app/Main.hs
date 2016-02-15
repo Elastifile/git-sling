@@ -14,6 +14,7 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as L
 import           Data.Text.Lazy.Encoding (decodeUtf8, encodeUtf8)
+import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..), branchName,
                                                 fromBranchName, mkBranchName)
@@ -95,7 +96,11 @@ sendProposalEmail options proposal subject body logFile = do
 
 
 clearCurrentProposal :: IORef CurrentState -> IO ()
-clearCurrentProposal currentState = modifyIORef currentState $ \state -> state { csCurrentProposal = Nothing, csCurrentLogFile = Nothing }
+clearCurrentProposal currentState = do
+    modifyIORef currentState $ \state ->
+        state
+        { csCurrentProposal = Nothing
+        , csCurrentLogFile = Nothing }
 
 abortAttempt :: IORef CurrentState -> Options -> Proposal -> ExitCode -> EShell ()
 abortAttempt currentState options proposal _err = do
@@ -161,7 +166,11 @@ attemptBranch :: IORef CurrentState -> Options -> FilePath -> Branch -> Proposal
 attemptBranch currentState options logDir branch proposal = do
     Git.fetch
 
-    liftIO $ modifyIORef currentState $ \state -> state { csCurrentProposal = Just proposal }
+    time <- liftIO getPOSIXTime
+    liftIO $ modifyIORef currentState $ \state ->
+        state
+        { csCurrentProposal = Just (proposal, time)
+        }
     liftIO $ putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
     liftIO $ putStrLn "Commits: "
     commits <- Git.log (proposalBranchBase proposal) (RefBranch branch)
