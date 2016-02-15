@@ -31,6 +31,8 @@ import qualified Data.List as List
 
 import           Network.Mail.Mime (Mail)
 import qualified Network.Mail.Mime as Mail
+import Network.BSD (getHostName, getHostByName)
+import qualified Network.BSD as Net
 
 import           System.IO.Temp (createTempDirectory)
 import           Text.Blaze.Html (toHtml, (!))
@@ -39,6 +41,9 @@ import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
 import Control.Concurrent (killThread, threadDelay)
 import           Options.Applicative
+
+getFullHostName :: IO Net.HostName
+getFullHostName = Net.hostName <$> (getHostName >>= getHostByName)
 
 pollingInterval :: Int
 pollingInterval = 1000000 * 10
@@ -72,6 +77,7 @@ addAttachment ct fn attachedFN mail = do
 
 sendProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe FilePath -> EShell ()
 sendProposalEmail options proposal subject body logFile = do
+    webHref <- liftIO $ (<> (":" <> show (optWebServerPort options))) . ("http://" <>) <$> getFullHostName
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
         (Mail.Address Nothing $ formatEmail sourceEmail)
@@ -81,7 +87,8 @@ sendProposalEmail options proposal subject body logFile = do
         ""
         (renderHtml $ do
                 H.p . H.b $ fromString $ T.unpack subject
-                body)
+                body
+                H.p $ H.a H.! A.href (H.preEscapedToValue webHref)  $ "Sling Server Status")
         []
 
     mail <- case logFile of
