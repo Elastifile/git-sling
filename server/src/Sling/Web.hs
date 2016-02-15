@@ -7,7 +7,7 @@ module Sling.Web
 import Control.Concurrent (forkIO, ThreadId)
 import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
-import Data.Maybe (fromMaybe)
+
 import Data.Monoid ((<>))
 import qualified Data.Text as T
 import Sling.Proposal (Proposal(..), formatProposal)
@@ -17,6 +17,7 @@ import System.IO.Error (tryIOError, isEOFError)
 import Network.Wai (responseFile, FilePart(..))
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
 import qualified Text.Blaze.Html5 as H
+import qualified Text.Blaze.Html5.Attributes as A
 import qualified Data.Text.Lazy as L
 
 data CurrentState =
@@ -40,21 +41,38 @@ forkServer port getCurrentState = forkIO (runServer port getCurrentState)
 tailBytes :: Integer
 tailBytes = 4096
 
+htmlHead :: H.Html
+htmlHead = H.head $ do
+    H.link
+        H.! A.rel "stylesheet"
+        H.! A.href "https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css"
+
 runServer :: Int -> IO CurrentState -> IO ()
 runServer port getCurrentState =
     runSpock port $ spockT id $ do
         get "/" $ do
             state <- liftIO getCurrentState
             html $ L.toStrict $ renderHtml $ do
-                H.h1 "Sling Server"
-                H.div "Pending proposals:"
-                forM_ (csPendingProposals state) $ \proposal -> do
-                    H.div (H.text $ formatProposal proposal)
-                H.div $ H.text $ "Current proposal:" <> (fromMaybe "<idle>" $ formatProposal <$> csCurrentProposal state)
+                htmlHead
+                H.div H.! A.class_ "container" $ do
+                    H.h1 "Sling Server"
+                    H.h4 "Pending proposals"
+                    if (length (csPendingProposals state) == 0)
+                        then H.div (H.em $ H.text "none")
+                        else H.ol $ do
+                        forM_ (csPendingProposals state) $ \proposal -> do
+                            H.li (H.text $ formatProposal proposal)
+                    H.h4 "Current proposal"
+                    case csCurrentProposal state of
+                        Just proposal -> do
+                            H.p . H.text $ formatProposal proposal
+                            H.p $ H.a H.! A.href "/log" $ "Tail of log..."
+                        Nothing -> H.em $ H.text "none"
+
         get "/log" $ do
             state <- liftIO getCurrentState
             case csCurrentLogFile state of
-                Nothing -> text "<no current log>"
+                Nothing -> text "no current log"
                 Just logFile -> do
                     res <- liftIO $ tryIOError $ withFile logFile ReadMode $ hFileSize
                     case res of
