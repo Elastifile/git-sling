@@ -361,11 +361,11 @@ serverPoll currentState options = do
         , maybe "" ("non-dry-run branch filter: " <> ) (optBranchFilterNoDryRun options)
         ]
     let proposedBranches =
-            List.sort
-            $ filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ snd b)) remoteBranches
+            filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ snd b)) remoteBranches
 
         allProposals =
-            mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches)
+            List.sortOn (proposalQueueIndex . snd)
+            $ mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches)
         proposals = filter (shouldConsiderProposal options . snd) allProposals
 
         showProposals ps = List.intercalate "\n\t" (map (show . branchName . fst) ps)
