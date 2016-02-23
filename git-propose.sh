@@ -36,7 +36,7 @@ check_for_upgrade() {
 }
 
 show_usage() {
-    echo "Usage: git propose <integration branch on remote> [--dry-run]"
+    echo "Usage: git propose <integration branch on remote> [--dry-run] [--no-upgrade-check]"
     echo ""
     echo "For example, to merge to master use:"
     echo -e "\n\t> git propose master\n"
@@ -77,6 +77,7 @@ prompt() {
 }
 
 IS_DRY_RUN=false
+UPGRADE_CHECK=true
 ONTO_PREFIX="onto"
 ONTO_BRANCH=""
 for arg in "$@"; do
@@ -84,6 +85,9 @@ for arg in "$@"; do
         --dry-run)
             ONTO_PREFIX="dry-run-onto"
             IS_DRY_RUN=true
+            ;;
+        --no-upgrade-check)
+            UPGRADE_CHECK=false
             ;;
         *)
             ONTO_BRANCH="$arg"
@@ -98,12 +102,12 @@ if [ -z "$ONTO_BRANCH" ]; then
     exit 1
 fi
 
-echo "Fetching..."
+echo "In git repository: $(git rev-parse --show-toplevel). Fetching..."
 git fetch -p &
-fetch_sling &
+$UPGRADE_CHECK && fetch_sling &
 wait
 
-check_for_upgrade
+$UPGRADE_CHECK && check_for_upgrade
 
 set -o pipefail
 
