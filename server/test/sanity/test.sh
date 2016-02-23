@@ -7,8 +7,9 @@ cd $script_dir
 prepush="./tools/prepush.sh"
 
 sling_dir=$script_dir/../../..
-
-sling_server="$(stack path --project-root)/$(stack path --dist-dir)/build/sling-server-exe/sling-server-exe --email-client $script_dir/send_email.sh"
+send_email=$script_dir/send_email.sh
+sling_server="$(stack path --project-root)/$(stack path --dist-dir)/build/sling-server-exe/sling-server-exe --email-client $send_email"
+sling_propose="bash -x $sling_dir/git-propose.sh --no-upgrade-check"
 
 remote=$(mktemp -d)
 cd $remote
@@ -105,7 +106,7 @@ add_commit_file 1
 add_commit_file 2
 add_commit_file 3
 
-yes | run_cmd $sling_dir/git-propose.sh master
+yes | run_cmd $sling_propose master
 
 cd $serverdir
 logit clone $remote work
@@ -124,7 +125,7 @@ cd_client
 delete_rejected_branches
 
 add_prepush
-yes | run_cmd $sling_dir/git-propose.sh master
+yes | run_cmd $sling_propose master
 
 echo "----------------------------------------------------------------------"
 
@@ -146,14 +147,14 @@ logit reset --hard HEAD^1
 
 add_commit_file not_rebased
 
-yes | run_cmd $sling_dir/git-propose.sh master && fail "Expecting propose to fail because not rebased!"
+yes | run_cmd $sling_propose master && fail "Expecting propose to fail because not rebased!"
 
 echo "Testing un-rebasable proposal"
 
 logit reset --hard origin/master
 add_commit_file unrebasable "client side"
 
-yes | run_cmd $sling_dir/git-propose.sh master
+yes | run_cmd $sling_propose master
 
 echo "----------------------------------------------------------------------"
 
@@ -184,7 +185,7 @@ logit reset --hard origin/integration
 
 add_commit_file integration_test
 
-yes | run_cmd $sling_dir/git-propose.sh integration
+yes | run_cmd $sling_propose integration
 
 echo "----------------------------------------------------------------------"
 
@@ -211,8 +212,8 @@ git push -u origin dry_run_test
 add_commit_file dry_run_test
 
 # with --dry-run, no need for piping 'yes'
-run_cmd $sling_dir/git-propose.sh dry_run_test --dry-run
-run_cmd $sling_dir/git-propose.sh master --dry-run
+run_cmd $sling_propose dry_run_test --dry-run
+run_cmd $sling_propose master --dry-run
 
 
 cd_server
@@ -242,7 +243,7 @@ logit reset --hard origin/master
 
 add_commit_file directly_on_master
 
-yes | run_cmd $sling_dir/git-propose.sh master
+yes | run_cmd $sling_propose master
 
 cd_server
 
@@ -267,7 +268,7 @@ logit checkout master
 logit checkout -b test_not_matching
 add_commit_file test_not_matching
 
-yes | run_cmd $sling_dir/git-propose.sh branch_not_matching
+yes | run_cmd $sling_propose branch_not_matching
 
 cd_server
 
@@ -294,6 +295,42 @@ git log --format="%H %s" origin/branch_not_matching | grep "test_not_matching" |
 git log --format="%H %s" origin/master              | grep "test_not_matching" && fail "Expected master branch to NOT include the new commit"
 
 echo "----------------------------------------------------------------------"
+
+echo "Testing order"
+
+cd_client
+logit checkout -b "step0"
+logit reset --hard origin/master
+
+expected_steps_order=$(mktemp)
+num_proposals=15
+for i in $(seq 1 $num_proposals)
+do
+    logit checkout -b "step$i"
+    logit reset --hard origin/master
+    add_commit_file "step$i"
+    echo "step$i" >> $expected_steps_order
+    yes | run_cmd $sling_propose master
+done
+
+cd_server
+
+echo "Expecting success..."
+run_cmd $sling_server $prepush || fail "ERROR: Server should succeed!"
+
+cd_client
+logit fetch -p
+
+logit checkout master
+logit reset --hard origin/master
+actual_steps_order=$(mktemp)
+git log --format="%s" step0..origin/master  --reverse -- | grep -o 'step.*' > $actual_steps_order
+run_cmd diff $expected_steps_order $actual_steps_order
+rm $expected_steps_order
+rm $actual_steps_order
+
+echo "----------------------------------------------------------------------"
+
 echo '
  #####  #     #  #####   #####  #######  #####   #####
 #     # #     # #     # #     # #       #     # #     #
