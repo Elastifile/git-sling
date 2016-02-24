@@ -113,6 +113,16 @@ fetch = git ["fetch", "-p"] >> pure ()
 remote :: EShell [Remote]
 remote = map (Remote . nonEmptyText) <$> git ["remote"]
 
+clone :: Text -> FilePath -> Maybe Int -> Maybe Hash -> EShell ()
+clone source target depth hash' =
+    git (concat
+         [ ["clone"]
+         , maybe [] (\d -> ["--depth", T.pack $ show d]) depth
+         , maybe [] (\h -> ["--branch", fromHash h]) hash'
+         , [source, T.pack $ target]
+         ])
+    >> pure ()
+
 checkout :: Branch -> EShell ()
 checkout branch = git ["checkout", branchFullName branch] >> pure ()
 
