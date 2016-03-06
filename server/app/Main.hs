@@ -109,22 +109,22 @@ clearCurrentProposal currentState = do
         { csCurrentProposal = Nothing
         , csCurrentLogFile = Nothing }
 
-abortAttempt :: IORef CurrentState -> Options -> Proposal -> ExitCode -> EShell ()
-abortAttempt currentState options proposal _err = do
+abortAttempt :: IORef CurrentState -> Options -> Proposal -> (Text, ExitCode) -> EShell ()
+abortAttempt currentState options proposal (msg, _err) = do
     liftIO $ putStrLn "ABORTING..."
-    sendProposalEmail options proposal "Aborting" "" Nothing
+    sendProposalEmail options proposal "Aborting" (H.html $ H.text msg) Nothing
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
     resetLocalOnto proposal
     liftIO $ clearCurrentProposal currentState
     abort "Aborted"
 
-rejectProposal :: Options -> Proposal -> Text -> Maybe FilePath -> ExitCode -> EShell ()
-rejectProposal options proposal msg logFile err = do
+rejectProposal :: Options -> Proposal -> Text -> Maybe FilePath -> (Text, ExitCode) -> EShell ()
+rejectProposal options proposal reason logFile (msg, err) = do
     let rejectedProposal = proposal { proposalStatus = ProposalRejected }
         rejectBranchName = formatProposal rejectedProposal
         origBranchName = formatProposal proposal
-        msgBody = "REJECT " <> origBranchName <> " because: '" <> msg <> "', exit code = " <> T.pack (show err)
+        msgBody = "REJECT " <> origBranchName <> " because: '" <> reason <> "' (" <> msg <> "), exit code = " <> T.pack (show err)
     liftIO $ putStrLn . T.unpack $ msgBody
     sendProposalEmail options proposal ("Rejecting (" <> msg <> ")") (toHtml msgBody) logFile
     Git.fetch & ignoreError

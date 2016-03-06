@@ -9,15 +9,14 @@ import Data.Char (isHexDigit, isSpace)
 import Data.Monoid ((<>))
 import Data.String (IsString (..))
 import Data.Text (Text)
-import qualified Data.Text                  as T (all, length, lines, null,
-                                                  pack, unpack)
+import qualified Data.Text                  as T
 import           Turtle                     (ExitCode (..), Pattern, Shell,
                                              anyChar, empty, match, procStrict,
                                              satisfy, sh, some, view)
 
 -- Turtle stuff
 
-type EShell a = EitherT ExitCode Shell a
+type EShell a = EitherT (Text, ExitCode) Shell a
 
 eprocsIn :: Text -> [Text] -> Shell Text -> EShell Text
 eprocsIn cmd args input = do
@@ -27,7 +26,7 @@ eprocsIn cmd args input = do
         _           -> do
             liftIO $ print (cmd, args)
             liftIO $ putStrLn $ T.unpack t
-            left exitCode
+            left ("Command failed: " <> T.intercalate " " (cmd:args), exitCode)
 
 eprocs :: Text -> [Text] -> EShell Text
 eprocs cmd args = eprocsIn cmd args empty
@@ -55,14 +54,14 @@ safe f xs = Just $ f xs
 abort :: Text -> EShell a
 abort msg = do
     liftIO $ putStrLn $ T.unpack msg
-    left $ ExitFailure 1
+    left (msg, ExitFailure 1)
 
 runEShell :: EShell a -> IO ()
 runEShell act = sh $ do
     res <- runEitherT act
     case res of
-        Left ExitSuccess -> return ()
-        Left exitCode -> liftIO (exitWith exitCode)
+        Left (_, ExitSuccess) -> return ()
+        Left (_msg, exitCode) -> liftIO (exitWith exitCode)
         _ -> return ()
 
 singleMatch :: Pattern b -> Text -> Maybe b
