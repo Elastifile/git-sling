@@ -71,6 +71,7 @@ configure_git_user() {
   echo "Setting up git user info..."
   git config --global user.name "prepush"
   git config --global user.email "elasti-prepush@elastifile.com"
+  git config --global push.default simple
 }
 
 configure_stack() {
