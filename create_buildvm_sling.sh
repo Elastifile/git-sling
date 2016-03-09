@@ -1,4 +1,5 @@
 #!/bin/bash
+set -eu
 
 # The script creates build machine for git-sling
 # Should be run by user build
@@ -6,7 +7,12 @@ script_dir=$(dirname $(realpath $0))
 
 function clone_git_sling_repo() {
 
-  test -d ~/git/git-sling || ( mkdir -p ~/git ; cd ~/git ; git clone git@github.com:Elastifile/git-sling.git )
+    test -d ~/git/git-sling || (
+        mkdir -p ~/git
+        cd ~/git
+        git clone git@github.com:Elastifile/git-sling.git
+        git checkout master-server
+    )
 
 }
 
