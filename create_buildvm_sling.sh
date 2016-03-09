@@ -19,6 +19,10 @@ function configure_cron() {
 
 }
 
+function configure_sudoers() {
+    echo 'build   ALL=(ALL)       NOPASSWD: ALL' >> /etc/sudoers
+}
+
 function configure_mstp() {
 
   user="elasti-prepush@elastifile.com"
@@ -63,6 +67,8 @@ configure_stack() {
 }
 
 main() {
+  configure_sudoers
+  su - build
   configure_stack
   configure_mstp
   clone_git_sling_repo
