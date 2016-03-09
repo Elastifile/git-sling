@@ -36,13 +36,23 @@ check_for_upgrade() {
 }
 
 show_usage() {
-    echo "Usage: git propose <integration branch on remote> [--dry-run] [--no-upgrade-check]"
-    echo ""
-    echo "For example, to merge to master use:"
-    echo -e "\n\t> git propose master\n"
-    echo "Or to just check if your branch can rebase & build over 'my_integration', use:"
-    echo -e "\n\t> git propose my_integration --dry-run\n"
-    echo "(Note, you shouldn't add the 'origin/' prefix.)"
+    echo | cat <<EOF
+Usage: git propose <integration branch on remote> [--dry-run] [--no-upgrade-check] [--vip]
+
+ --dry-run            Don't actually merge the changes; just check that rebase + prepush passes.
+ --no-upgrade-check   Disable automatic checking for a new version of git-sling
+ --vip                Give this proposal a higher priority than normal (use with discretion).
+
+For example, to merge to master use:
+
+> git propose master
+
+Or to just check if your branch can rebase & build over 'my_integration', use:
+
+> git propose my_integration --dry-run
+
+(Note, you shouldn't add the 'origin/' prefix.)
+EOF
 }
 
 abort_bad_name() {
@@ -80,6 +90,7 @@ IS_DRY_RUN=false
 UPGRADE_CHECK=true
 ONTO_PREFIX="onto"
 ONTO_BRANCH=""
+IS_VIP=false
 for arg in "$@"; do
     case $arg in
         --dry-run)
@@ -88,6 +99,9 @@ for arg in "$@"; do
             ;;
         --no-upgrade-check)
             UPGRADE_CHECK=false
+            ;;
+        --vip)
+            IS_VIP=true
             ;;
         *)
             ONTO_BRANCH="$arg"
@@ -122,13 +136,18 @@ BASE_COMMIT="$(git log -1 origin/$ONTO_BRANCH --format=%h)"
 
 # The index here gives an approximate ordering (because it isn't
 # atomic on the remove status). That's good enough for now.
-INDEX=$(git branch -r | \
-               (grep -E "$PROPOSED_PREFIX[0-9]+" \
-                       || echo 0) | \
-               ${SCRIPT_DIR}/sed.sh -r "s,.*$PROPOSED_PREFIX([0-9]+).*,\1,g" | \
-               sort -g | \
-               tail -1)
-NEXT_INDEX=$(($INDEX + 1))
+if $IS_VIP;
+then
+    NEXT_INDEX=1
+else
+    INDEX=$(git branch -r | \
+                   (grep -E "$PROPOSED_PREFIX[0-9]+" \
+                           || echo 0) | \
+                   ${SCRIPT_DIR}/sed.sh -r "s,.*$PROPOSED_PREFIX([0-9]+).*,\1,g" | \
+                   sort -g | \
+                   tail -1)
+    NEXT_INDEX=$(($INDEX + 1))
+fi
 git config user.email | grep "\-at\-" && \
     ( echo "your email contains '-at-' /";
       echo " we don't support    that!";
