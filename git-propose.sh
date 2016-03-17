@@ -185,4 +185,6 @@ git push origin "HEAD:$REMOTE_BRANCH"
 echo
 echo "Pushed to: $REMOTE_BRANCH"
 echo
+echo "Proposal added to work queue. You will receive an email when the server starts working on it. If the server is busy, this may take some time."
+echo
 echo "To unpropose, use: git unpropose $PROPOSED_BRANCH"
