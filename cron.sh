@@ -4,8 +4,6 @@ SCRIPT_DIR=$(dirname $(readlink -f $0))
 
 source $SCRIPT_DIR/sling-config.sh
 
-COMMAND="./tools/prepush.sh"
-
 (
     flock -n 9 || exit 1
 
@@ -16,8 +14,8 @@ COMMAND="./tools/prepush.sh"
     stack build
     SLING_SERVER=$(stack path --project-root)/$(stack path --dist-dir)/build/sling-server-exe/sling-server-exe
 
-    test -d $SERVER_WORKDIR/example-project-system || (cd $SERVER_WORKDIR && git clone git@github.com:Elastifile/example-project-system.git && git submodule update --init)
-    cd $SERVER_WORKDIR/example-project-system/example-project
-    bash -c "$SLING_SERVER $SERVER_OPTIONS -- $COMMAND"
+    test -d $SERVER_WORKDIR/$GIT_CLONE_DIR_NAME || (cd $SERVER_WORKDIR && git clone $GIT_REPO $GIT_CLONE_DIR_NAME && git submodule update --init)
+    cd $SERVER_WORKDIR/$GIT_CLONE_DIR_NAME
+    bash -c "$SLING_SERVER $SERVER_OPTIONS -- $PREPUSH_COMMAND"
 
 ) 9>$SERVER_LOCKFILE
