@@ -6,6 +6,9 @@ SCRIPT_DIR=$(dirname $(realpath $BASH_SOURCE))
 suggest_upgrade() {
     upgrade_cmd="cd $SCRIPT_DIR ; git checkout master; git rebase"
     echo "You're in luck! A new version of sling (git propose) is available."
+    echo ""
+    echo "WARNING: You should be sure the server has been upgraded before upgrading the client!"
+    echo ""
     echo "To upgrade, run:"
     echo $upgrade_cmd
     echo -n "Should I do this for you? (y/n) "
