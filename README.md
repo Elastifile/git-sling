@@ -62,3 +62,5 @@ Edit the file `sling-config.sh` to configure.
 # Contributors
 
 Author: Noam Lewis ([@sinelaw](https://github.com/sinelaw))
+
+OS X support for client: Eli Weissbrem
