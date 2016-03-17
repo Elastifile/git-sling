@@ -11,7 +11,7 @@
 #
 SCRIPT_DIR=$(dirname $(realpath $BASH_SOURCE))
 
-source $SCRIPT_DIR/sling-config.sh
+( source $SCRIPT_DIR/sling-config.sh &> /dev/null ) || source $SCRIPT_DIR/sling-config.sh.example
 
 in_sling_dir() {
     (

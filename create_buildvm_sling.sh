@@ -93,6 +93,11 @@ configure_docker() {
     sudo usermod -a -G docker build
 }
 
+configure_config() {
+  echo "Copying config from example"
+  cp -v $script_dir/sling-config.sh.example $script_dir/sling-config.sh
+}
+
 main() {
   configure_sudoers
   configure_docker
@@ -103,6 +108,7 @@ main() {
   create_workdir
   configure_git_user
   configure_ulimit
+  configure_config
   echo "Done."
 }
 
