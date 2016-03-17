@@ -40,7 +40,7 @@ show_usage() {
 Usage: git propose <integration branch on remote> [--dry-run] [--no-upgrade-check] [--vip]
 
  --dry-run            Don't actually merge the changes; just check that rebase + prepush passes.
- --no-upgrade-check   Disable automatic checking for a new version of git-sling
+ --(no-)upgrade-check Enable/disable automatic checking for a new version of git-sling
  --vip                Give this proposal a higher priority than normal (use with discretion).
 
 For example, to merge to master use:
@@ -87,7 +87,7 @@ prompt() {
 }
 
 IS_DRY_RUN=false
-UPGRADE_CHECK=true
+UPGRADE_CHECK=false
 ONTO_PREFIX="onto"
 ONTO_BRANCH=""
 IS_VIP=false
@@ -99,6 +99,9 @@ for arg in "$@"; do
             ;;
         --no-upgrade-check)
             UPGRADE_CHECK=false
+            ;;
+        --upgrade-check)
+            UPGRADE_CHECK=true
             ;;
         --vip)
             IS_VIP=true
