@@ -89,8 +89,13 @@ configure_ulimit() {
     sudo sysctl -p
 }
 
+configure_docker() {
+    sudo usermod -a -G docker build
+}
+
 main() {
   configure_sudoers
+  configure_docker
   configure_stack
   configure_mstp
   clone_git_sling_repo
