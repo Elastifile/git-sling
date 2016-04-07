@@ -189,8 +189,21 @@ createRemoteTrackingBranch r name = do
     _ <- git ["push", "-u", fromNonEmptyText $ remoteName r, fromBranchName name]
     return $ RemoteBranch r name
 
-rebase :: Ref -> Ref -> EShell ()
-rebase base onto = git ["rebase", "-p", refName base, "--onto", refName onto] >> pure ()
+data RebaseMergePolicy = RebaseKeepMerges | RebaseDropMerges
+
+data Rebase =
+    Rebase { rebaseBase :: Ref
+           , rebaseOnto :: Ref
+           , rebasePolicy :: RebaseMergePolicy
+           }
+
+rebase :: Rebase -> EShell ()
+rebase (Rebase base onto policy) = git (["rebase", refName base, "--onto", refName onto] ++ p) >> pure ()
+    where
+        p = case policy of
+            RebaseKeepMerges -> ["-p"]
+            RebaseDropMerges -> []
+
 
 currentRef :: EShell Ref
 currentRef = RefHash . hash . head <$> git ["log", "-1", "--format=%H"]

@@ -221,7 +221,10 @@ attemptBranch currentState options logDir branch proposal = do
     Git.reset Git.ResetHard (RefBranch branch)
 
     -- rebase work onto target
-    Git.rebase (proposalBranchBase proposal) remoteOnto
+    Git.rebase Git.Rebase { Git.rebaseBase = proposalBranchBase proposal,
+                            Git.rebaseOnto = remoteOnto,
+                            Git.rebasePolicy = Git.RebaseKeepMerges
+                          }
         `catchError` rejectProposal options proposal "Rebase failed" Nothing
 
     liftIO $ putStrLn "Commits (after rebase): "
