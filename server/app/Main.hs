@@ -223,7 +223,7 @@ attemptBranch currentState options logDir branch proposal = do
     -- rebase work onto target
     Git.rebase Git.Rebase { Git.rebaseBase = proposalBranchBase proposal,
                             Git.rebaseOnto = remoteOnto,
-                            Git.rebasePolicy = Git.RebaseKeepMerges
+                            Git.rebasePolicy = Git.RebaseDropMerges
                           }
         `catchError` rejectProposal options proposal "Rebase failed" Nothing
 
