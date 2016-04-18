@@ -75,7 +75,7 @@ abort_not_rebased() {
 }
 
 prompt() {
-    echo -n "$1 (y/n) "
+    echo -n "$1 (y/n): "
     read answer
     if echo "$answer" | grep -iq "^y" ;
     then
