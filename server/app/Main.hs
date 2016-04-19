@@ -3,7 +3,7 @@
 {-# LANGUAGE TupleSections     #-}
 module Main where
 
-import           Control.Monad (forM_, when, unless, join)
+import           Control.Monad (when, unless, join)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Lazy as LBS
@@ -352,7 +352,7 @@ shouldConsiderProposal options proposal =
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
           isDryRun = proposalDryRun proposal
 
-serverPoll :: IORef CurrentState -> Options -> EShell ()
+serverPoll :: IORef CurrentState -> Options -> EShell Bool
 serverPoll currentState options = do
     Git.fetch
     remoteBranches <- Git.remoteBranches
@@ -377,20 +377,27 @@ serverPoll currentState options = do
     liftIO $ putStrLn $ "Going to attempt proposals:\n\t" <> showProposals proposals
 
     liftIO $ modifyIORef currentState $ \state -> state { csPendingProposals = map snd proposals }
-    forM_ proposals (uncurry $ attemptBranchOrAbort currentState options)
-
-    liftIO $ clearCurrentProposal currentState
-    liftIO $ putStrLn $ "Done."
+    case proposals of
+        [] -> do
+            liftIO $ putStrLn $ "Done - have nothing to do."
+            return False
+        (topProposal:_) -> do
+            (uncurry $ attemptBranchOrAbort currentState options) topProposal
+            liftIO $ clearCurrentProposal currentState
+            liftIO $ putStrLn $ "Done proposal: " ++ (show topProposal)
+            return True
 
 serverLoop :: IORef CurrentState -> Options -> EShell ()
 serverLoop currentState options = do
     let go = do
-            serverPoll currentState options
-            case optPollingInterval options of
-                Nothing -> return ()
-                Just d -> do
-                    liftIO $ threadDelay $ d*1000000
-                    go
+            havePending <- serverPoll currentState options
+            if havePending
+                then go
+                else case optPollingInterval options of
+                         Nothing -> return ()
+                         Just d -> do
+                             liftIO $ threadDelay $ d*1000000
+                             go
     go
 
 main :: IO ()
