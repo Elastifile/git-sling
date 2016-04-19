@@ -111,7 +111,7 @@ clearCurrentProposal currentState = do
 
 abortAttempt :: IORef CurrentState -> Options -> Proposal -> (Text, ExitCode) -> EShell ()
 abortAttempt currentState options proposal (msg, _err) = do
-    liftIO $ putStrLn "ABORTING..."
+    liftIO $ putStrLn $ "ABORTING: " ++ (show msg)
     sendProposalEmail options proposal "Aborting" (H.html $ H.text msg) Nothing
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
