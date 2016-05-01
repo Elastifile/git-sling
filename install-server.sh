@@ -5,17 +5,6 @@ set -eu
 # Should be run by user build
 script_dir=$(dirname $(realpath $0))
 
-function clone_git_sling_repo() {
-    echo "Ensuring git-sling is cloned..."
-    test -d ~/git/git-sling || (
-        mkdir -p ~/git
-        cd ~/git
-        git clone git@github.com:Elastifile/git-sling.git
-        git checkout master-server
-    )
-
-}
-
 
 function configure_cron() {
   echo "Configuring cron..."
@@ -99,11 +88,13 @@ configure_config() {
 }
 
 main() {
+  whoami | grep -E '^build$' || ( echo "Expecting to run under user 'build'"; exit 1)
+  sudo yum install epel-release
+  sudo yum install docker git zlib-devel
   configure_sudoers
   configure_docker
   configure_stack
   configure_mstp
-  clone_git_sling_repo
   configure_cron
   create_workdir
   configure_git_user
