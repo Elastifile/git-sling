@@ -235,7 +235,7 @@ attemptBranch currentState options logDir branch proposal = do
     -- top (if we should merge ff only)
     Git.checkout (LocalBranch ontoBranchName)
 
-    isMerge <- Git.isMergeCommit (RefBranch branch)
+    isMerge <- Git.isMergeCommit (RefBranch niceBranch)
     let mergeFF =
             if isMerge || (length commits == 1)
             then Git.MergeFFOnly
