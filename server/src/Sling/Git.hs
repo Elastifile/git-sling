@@ -210,7 +210,7 @@ currentRef = RefHash . hash . head <$> git ["log", "-1", "--format=%H"]
 
 isMergeCommit :: Ref -> EShell Bool
 isMergeCommit ref = do
-    headParents <- fmap T.words . safe head <$> git ["log", "-1", "--format=%p", refName ref]
+    headParents <- fmap T.words . safe head <$> git ["log", "-1", "--format=%p", refName ref, "--"]
     case length <$> headParents of
         Nothing -> abort "no git log output?!"
         Just 0 -> abort "commit has no parents?!" -- shouldn't happen
@@ -235,8 +235,12 @@ logPat = do
     title <- T.pack <$> some anyChar
     return $ LogEntry fullref shortref user title
 
+
+-- Run git log with trailing '--' to avoid ambiguity between branch and file names
 log :: Ref -> Ref -> EShell [LogEntry]
-log base top = join $ mapM (mustMatch logPat) <$> git ["log", "--format=%H %h %an|%s", refName base <> ".." <> refName top]
+log base top = join $ mapM (mustMatch logPat) <$> git ["log", "--format=%H %h %an|%s"
+                                                      , refName base <> ".." <> refName top
+                                                      , "--"]
 
 commitAmend :: Email -> Ref -> EShell ()
 commitAmend email ref =
