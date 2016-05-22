@@ -122,6 +122,10 @@ abortAttempt currentState options proposal (msg, _err) = do
     liftIO $ clearCurrentProposal currentState
     abort "Aborted"
 
+slingBranchName :: Maybe Prefix -> Text -> Git.BranchName
+slingBranchName Nothing suffix = mkBranchName suffix
+slingBranchName (Just (Prefix prefix)) suffix = mkBranchName $ prefix <> suffix
+
 rejectProposal :: Options -> Proposal -> Text -> Maybe FilePath -> (Text, ExitCode) -> EShell ()
 rejectProposal options proposal reason logFile (msg, err) = do
     let rejectedProposal = proposal { proposalStatus = ProposalRejected }
@@ -262,22 +266,36 @@ attemptBranch currentState options logDir branch proposal = do
     runPrepush logFileName (optCommandAndArgs options) finalBase finalHead
         `catchError` rejectProposal options proposal "Prepush command failed" (Just logFileName)
 
-    liftIO $ putStrLn . T.unpack $ "Updating: " <> fromBranchName ontoBranchName
+    liftIO $ putStrLn $ "Prepush command ran succesfully"
 
-    Git.checkout (LocalBranch ontoBranchName)
-    when (niceBranchName /= ontoBranchName) $
-        Git.deleteLocalBranch niceBranchName & ignoreError
-
-    if isDryRun options proposal
-    then do
-        sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just logFileName)
-    else do
-        -- TODO ensure not dirty
-        Git.push -- TODO -u origin master
-        sendProposalEmail options proposal "Merged successfully" "" (Just logFileName)
+    case optTargetPrefix options of
+        Nothing -> do
+            Git.checkout (LocalBranch ontoBranchName)
+            when (niceBranchName /= ontoBranchName) $
+                Git.deleteLocalBranch niceBranchName & ignoreError
+            if isDryRun options proposal
+            then do
+                sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just logFileName)
+            else do
+                -- TODO ensure not dirty
+                liftIO $ putStrLn . T.unpack $ "Updating: " <> fromBranchName ontoBranchName
+                Git.push -- TODO -u origin master
+                sendProposalEmail options proposal "Merged successfully" "" (Just logFileName)
+        Just targetPrefix -> do
+            let targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix }
+                targetBranchName = mkBranchName targetProposalName
+            liftIO $ putStrLn $ "Creating target proposal branch: " <> T.unpack targetProposalName
+            when (targetBranchName == ontoBranchName)
+                $ abort $ "Can't handle branch, onto == target: " <> targetProposalName
+            Git.deleteLocalBranch targetBranchName & ignoreError
+            _ <- Git.createLocalBranch targetBranchName RefHead
+            _ <- Git.createRemoteTrackingBranch origin targetBranchName
+            Git.checkout (LocalBranch ontoBranchName)
+            Git.deleteLocalBranch targetBranchName
+            sendProposalEmail options proposal ("Ran successfully, moved to: " <> fromPrefix targetPrefix) "" (Just logFileName)
+            return ()
 
     -- TODO delete logfile name
-
     liftIO $ putStrLn "Deleting proposal branch..."
     Git.deleteBranch branch
 
@@ -303,6 +321,8 @@ data Options =
     , optEmailClient :: [Text]
     , optProposalMode :: ProposalMode
     , optForceDryRun :: Bool
+    , optSourcePrefix :: Maybe Prefix
+    , optTargetPrefix :: Maybe Prefix
     , optCommandAndArgs :: [String]
     }
 
@@ -319,7 +339,7 @@ defaultPort = 8080
 
 parseProposalFromCmdLine :: String -> Proposal
 parseProposalFromCmdLine s =
-    case parseProposal (T.pack s) of
+    case parseProposal Nothing (T.pack s) of
         Nothing -> error $ "Invalid proposal format: " ++ show s
         Just p -> p
 
@@ -337,6 +357,11 @@ parseModeBranches =
          (strOption (long "proposal-branch" <>
                      short 'b' <>
                      help "A proposal branch name to handle")))
+
+prefixOption :: Mod OptionFields String -> Parser Prefix
+prefixOption args = Prefix . verify . T.pack <$> strOption args
+    where
+        verify t = if T.null t then error "Prefix can't be empty" else t
 
 parser :: Parser Options
 parser = Options
@@ -369,6 +394,12 @@ parser = Options
          (short 'n' <>
           long "force-dry-run" <>
           help ("Treat all proposals as dry run (regardless of what they say)")))
+    <*> (optional $ prefixOption
+         (long "source-prefix" <>
+          help ("Prefix of branches to be used for proposals")))
+    <*> (optional $ prefixOption
+         (long "target-prefix" <>
+          help ("If missing, successful branches are deleted. If non-empty, prefix of branches to be used for succesful proposals. Regardless, non-dry run proposals will be merged.")))
     <*> (some $ argument str
          (metavar "-- COMMAND" <>
           help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
@@ -376,7 +407,8 @@ parser = Options
 
 shouldConsiderProposal :: Options -> Proposal -> Bool
 shouldConsiderProposal options proposal =
-    (fromMaybe True $ checkFilter <$> optBranchFilterAll options)
+    (ProposalProposed == proposalStatus proposal)
+    && (fromMaybe True $ checkFilter <$> optBranchFilterAll options)
     && (fromMaybe True $ ((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun options)
     && (fromMaybe True $ (proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun options)
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
@@ -404,12 +436,15 @@ serverPoll currentState options = do
         , maybe "" ("dry run branch filter: " <> ) (optBranchFilterDryRun options)
         , maybe "" ("non-dry-run branch filter: " <> ) (optBranchFilterNoDryRun options)
         ]
-    let proposedBranches =
-            filter (\b -> proposedPrefix `T.isPrefixOf` (fromBranchName $ snd b)) remoteBranches
+    liftIO $ putStrLn $ mconcat $ List.intersperse "\n\t"
+        [ "Prefixes: "
+        , "Source: " <> maybe "" (T.unpack . fromPrefix) (optSourcePrefix options)
+        , "Target: " <> maybe "" (T.unpack . fromPrefix) (optTargetPrefix options)
+        ]
 
-        allProposals =
+    let allProposals =
             List.sortOn (proposalQueueIndex . snd)
-            $ mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) proposedBranches)
+            $ mapMaybe (\branch -> (branch,) <$> parseProposal (optSourcePrefix options) (branchName branch)) (map (uncurry Git.RemoteBranch) remoteBranches)
         proposals = filter (shouldConsiderProposal options . snd) allProposals
 
         showProposals ps = List.intercalate "\n\t" (map (show . branchName . fst) ps)
