@@ -75,13 +75,16 @@ addAttachment ct fn attachedFN mail = do
                (encodeUtf8 ("<html><body><pre>" <> renderHtml (toHtml . L.toStrict $ decodeUtf8 content) <> "</pre></body></html>"))
     return $ Mail.addPart [part] mail
 
+isDryRun :: Options -> Proposal -> Bool
+isDryRun options proposal = optForceDryRun options || proposalDryRun proposal
+
 sendProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe FilePath -> EShell ()
 sendProposalEmail options proposal subject body logFile = do
     webHref <- liftIO $ (<> (":" <> show (optWebServerPort options))) . ("http://" <>) <$> getFullHostName
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
         (Mail.Address Nothing $ formatEmail sourceEmail)
-        ((if proposalDryRun proposal then "(dry run) " else "")
+        ((if isDryRun options proposal then "(dry run) " else "")
          <> fromBranchName (proposalName proposal)
          <> " (" <> formatProposal proposal <> ")")
         ""
@@ -159,14 +162,14 @@ htmlFormatCommitLog commits urlPrefix = do
     H.p "Commits:"
     H.table . H.tbody $ mapM_ (H.tr . htmlFormatCommit urlPrefix) commits
 
-proposalEmailHeader :: Proposal -> [Git.LogEntry] -> Maybe Text -> H.Html
-proposalEmailHeader proposal commits baseUrl = do
+proposalEmailHeader :: Options -> Proposal -> [Git.LogEntry] -> Maybe Text -> H.Html
+proposalEmailHeader options proposal commits baseUrl = do
     H.p . H.b $ "Proposal"
     H.p . fromString $ "Proposed by: " <> (T.unpack $ formatEmail . proposalEmail $ proposal)
     H.p $ do
         H.span "Onto branch: "
         H.b (fromString . T.unpack . fromBranchName . proposalBranchOnto $ proposal)
-        when (proposalDryRun proposal) $ H.span " (Dry run only, branch not moved)"
+        when (isDryRun options proposal) $ H.span " (Dry run only, branch not moved)"
     htmlFormatCommitLog commits baseUrl
 
 attemptBranch :: IORef CurrentState -> Options -> FilePath -> Branch -> Proposal -> EShell ()
@@ -183,8 +186,8 @@ attemptBranch currentState options logDir branch proposal = do
     commits <- Git.log (proposalBranchBase proposal) (RefBranch branch)
     liftIO $ mapM_ print commits
 
-    commitLogHtml <- proposalEmailHeader proposal commits <$> Git.remoteUrl origin
-    let title = if proposalDryRun proposal
+    commitLogHtml <- proposalEmailHeader options proposal commits <$> Git.remoteUrl origin
+    let title = if isDryRun options proposal
                 then "Running dry run"
                 else "Attempting to merge"
     sendProposalEmail options proposal title commitLogHtml Nothing
@@ -265,7 +268,7 @@ attemptBranch currentState options logDir branch proposal = do
     when (niceBranchName /= ontoBranchName) $
         Git.deleteLocalBranch niceBranchName & ignoreError
 
-    if proposalDryRun proposal
+    if isDryRun options proposal
     then do
         sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just logFileName)
     else do
@@ -299,6 +302,7 @@ data Options =
     , optWebServerPort :: Int
     , optEmailClient :: [Text]
     , optProposalMode :: ProposalMode
+    , optForceDryRun :: Bool
     , optCommandAndArgs :: [String]
     }
 
@@ -361,6 +365,10 @@ parser = Options
           metavar "COMMAND" <>
           help ("Command to use sending emails. Default: " <> (T.unpack $ T.intercalate " " defaultEmailClient))))
     <*> parseModeBranches
+    <*> (switch
+         (short 'n' <>
+          long "force-dry-run" <>
+          help ("Treat all proposals as dry run (regardless of what they say)")))
     <*> (some $ argument str
          (metavar "-- COMMAND" <>
           help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
@@ -369,10 +377,9 @@ parser = Options
 shouldConsiderProposal :: Options -> Proposal -> Bool
 shouldConsiderProposal options proposal =
     (fromMaybe True $ checkFilter <$> optBranchFilterAll options)
-    && (fromMaybe True $ ((not isDryRun) ||) . checkFilter <$> optBranchFilterDryRun options)
-    && (fromMaybe True $ (isDryRun ||) . checkFilter <$> optBranchFilterNoDryRun options)
+    && (fromMaybe True $ ((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun options)
+    && (fromMaybe True $ (proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun options)
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
-          isDryRun = proposalDryRun proposal
 
 handleSpecificProposal :: IORef CurrentState -> Options -> Proposal -> EShell ()
 handleSpecificProposal state options proposal = do

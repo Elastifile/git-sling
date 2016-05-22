@@ -390,6 +390,27 @@ specific_proposal_branch_name=$(git branch -r | grep ' *origin/sling/proposed/.*
 cd_server
 
 echo "Expecting success..."
+run_cmd $sling_server $prepush --force-dry-run --proposal-branch $specific_proposal_branch_name || fail "Error: Server should succeed!"
+
+cd_client
+
+logit fetch -p
+logit checkout master
+logit reset --hard origin/master
+
+git log --format="%s" | grep 'proposal_in_queue_first' && fail "Error: Shouldn't have handled this proposal"
+git log --format="%s" | grep 'specific_proposal' && fail "Error: Shouldn't have handled this proposal"
+
+logit branch -r | grep $specific_proposal_branch_name && fail "Error: specific proposal branch should be deleted"
+
+logit checkout "specific_proposal"
+
+yes | run_cmd $sling_propose master
+
+# Go back to server, run in without force dry run
+cd_server
+
+echo "Expecting success..."
 run_cmd $sling_server $prepush --proposal-branch $specific_proposal_branch_name || fail "Error: Server should succeed!"
 
 cd_client
