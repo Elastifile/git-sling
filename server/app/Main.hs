@@ -287,6 +287,10 @@ usage = List.intercalate "\n"
     , "where COMMAND is the prepush command to run on each attempted branch."
     ]
 
+data ProposalMode
+    = ProposalFromBranch (Maybe Int)
+    | ProposalFromCommandLine Proposal
+
 data Options =
     Options
     { optBranchFilterAll :: Maybe String
@@ -294,7 +298,7 @@ data Options =
     , optBranchFilterNoDryRun :: Maybe String
     , optWebServerPort :: Int
     , optEmailClient :: [Text]
-    , optPollingInterval :: Maybe Int
+    , optProposalMode :: ProposalMode
     , optCommandAndArgs :: [String]
     }
 
@@ -308,6 +312,27 @@ defaultEmailClient = ["msmtp", "-C", "/opt/msmtp.conf"]
 
 defaultPort :: Int
 defaultPort = 8080
+
+parseProposalFromCmdLine :: String -> Proposal
+parseProposalFromCmdLine s =
+    case parseProposal (T.pack s) of
+        Nothing -> error $ "Invalid proposal format: " ++ show s
+        Just p -> p
+
+parseModeBranches :: Parser ProposalMode
+parseModeBranches =
+    (flag' (ProposalFromBranch Nothing)
+     (short 's' <>
+      long "Read a single proposal from branch"))
+    <|> (ProposalFromBranch <$>
+            (optional $ option auto
+                (short 'd' <>
+                 metavar "T" <>
+                 long "Poll proposals from branches, checking git status every T seconds")))
+    <|> (ProposalFromCommandLine . parseProposalFromCmdLine <$>
+         (strOption (long "proposal-branch" <>
+                     short 'b' <>
+                     help "A proposal branch name to handle")))
 
 parser :: Parser Options
 parser = Options
@@ -335,10 +360,7 @@ parser = Options
           long "email-client" <>
           metavar "COMMAND" <>
           help ("Command to use sending emails. Default: " <> (T.unpack $ T.intercalate " " defaultEmailClient))))
-    <*> (optional $ option auto
-         (short 'd' <>
-          metavar "T" <>
-          long "keep running, polling git status every T seconds"))
+    <*> parseModeBranches
     <*> (some $ argument str
          (metavar "-- COMMAND" <>
           help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
@@ -351,6 +373,18 @@ shouldConsiderProposal options proposal =
     && (fromMaybe True $ (isDryRun ||) . checkFilter <$> optBranchFilterNoDryRun options)
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
           isDryRun = proposalDryRun proposal
+
+handleSpecificProposal :: IORef CurrentState -> Options -> Proposal -> EShell ()
+handleSpecificProposal state options proposal = do
+    Git.fetch
+    remoteBranches <- Git.remoteBranches
+    let proposalBranchName = formatProposal proposal
+        matchingBranches = filter (\b -> proposalBranchName == fromBranchName (snd b)) remoteBranches
+    branch <- case matchingBranches of
+        [] -> abort $ "Failed to find branch: " <> (T.pack $ show proposalBranchName)
+        [b] -> return b
+        _ -> abort $ "Assertion failed: multiple branches matching the same proposal: " <> (T.pack $ show proposalBranchName)
+    attemptBranchOrAbort state options (uncurry Git.RemoteBranch $ branch) proposal
 
 serverPoll :: IORef CurrentState -> Options -> EShell Bool
 serverPoll currentState options = do
@@ -387,13 +421,13 @@ serverPoll currentState options = do
             liftIO $ putStrLn $ "Done proposal: " ++ (show topProposal)
             return True
 
-serverLoop :: IORef CurrentState -> Options -> EShell ()
-serverLoop currentState options = do
+serverLoop :: IORef CurrentState -> Maybe Int -> Options -> EShell ()
+serverLoop currentState interval options = do
     let go = do
             havePending <- serverPoll currentState options
             if havePending
                 then go
-                else case optPollingInterval options of
+                else case interval of
                          Nothing -> return ()
                          Just d -> do
                              liftIO $ threadDelay $ d*1000000
@@ -405,5 +439,7 @@ main = runEShell $ do
     options <- liftIO $ parseOpts
     currentState <- liftIO $ newIORef emptyCurrentState
     serverThread <- liftIO $ forkServer (optWebServerPort options) (readIORef currentState)
-    _ <- serverLoop currentState options
+    case optProposalMode options of
+        ProposalFromBranch interval -> serverLoop currentState interval options
+        ProposalFromCommandLine proposal -> handleSpecificProposal currentState options proposal
     liftIO $ killThread serverThread
