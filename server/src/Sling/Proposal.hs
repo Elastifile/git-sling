@@ -24,6 +24,9 @@ emailPat sep = do
     domain <- nonEmptyText . T.pack <$> some (alphaNum <|> oneOf ".-")
     return $ Email user domain
 
+newtype Prefix = Prefix { fromPrefix :: Text }
+      deriving (Show, Eq)
+
 data Proposal
     = Proposal
       { proposalEmail      :: Email
@@ -33,6 +36,7 @@ data Proposal
       , proposalQueueIndex :: NatInt
       , proposalStatus     :: ProposalStatus
       , proposalDryRun     :: Bool
+      , proposalPrefix     :: Maybe Prefix
       }
       deriving (Show, Eq)
 
@@ -43,9 +47,9 @@ dryRunOntoPrefix :: Text
 dryRunOntoPrefix = "dry-run-onto"
 
 formatProposal :: Proposal -> Text
-formatProposal p = prefix <> suffix
+formatProposal p = "sling/" <> prefix <> "/" <> suffix
     where
-        prefix =
+        prefix = maybe T.empty (\x -> fromPrefix x <> "/") (proposalPrefix p) <>
             case proposalStatus p of
                 ProposalProposed -> proposedPrefix
                 ProposalRejected -> rejectBranchPrefix
@@ -76,9 +80,17 @@ formatRef (Git.RefBranch (Git.RemoteBranch r n)) = "R-" <> fromNonEmptyText (Git
 formatRef r@(Git.RefBranch (Git.LocalBranch{})) = "L-" <> Git.refName r
 formatRef r = Git.refName r
 
-proposalPat :: Pattern Proposal
-proposalPat = do
+proposalPat :: (Maybe Prefix) -> Pattern Proposal
+proposalPat mPrefix = do
+    _ <- text "sling/"
+    case mPrefix of
+        Nothing -> return ()
+        Just p -> do
+            _ <- text $ fromPrefix p
+            _ <- char '/'
+            return ()
     ps <- (text proposedPrefix *> pure ProposalProposed) <|> (text rejectBranchPrefix *> pure ProposalRejected)
+    _ <- char '/'
     index <- natInt <$> decimal
     _ <- char '/'
     name <- Git.mkBranchName <$> someText
@@ -91,17 +103,17 @@ proposalPat = do
     _ <- text "/user/"
     email <- emailPat "-at-"
     _ <- eof
-    return $ Proposal email name baseRef ontoRef index ps isDryRun
+    return $ Proposal email name baseRef ontoRef index ps isDryRun mPrefix
 
-parseProposal :: Text -> Maybe Proposal
-parseProposal = singleMatch proposalPat
+parseProposal :: Maybe Prefix -> Text -> Maybe Proposal
+parseProposal prefix = singleMatch (proposalPat prefix)
 
 slingPrefix :: Text
 slingPrefix = "sling"
 
 rejectBranchPrefix :: Text
-rejectBranchPrefix = slingPrefix <> "/rejected/"
+rejectBranchPrefix = "rejected"
 
 proposedPrefix :: Text
-proposedPrefix = slingPrefix <> "/proposed/"
+proposedPrefix = "proposed"
 

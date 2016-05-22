@@ -37,11 +37,14 @@ check_for_upgrade() {
 
 show_usage() {
     echo | cat <<EOF
-Usage: git propose <integration branch on remote> [--dry-run] [--no-upgrade-check] [--vip]
+Usage: git propose <merge branch> [--dry-run] [--no-upgrade-check] [--vip] [--source=SOURCE_PREFIX]
 
  --dry-run            Don't actually merge the changes; just check that rebase + prepush passes.
  --(no-)upgrade-check Enable/disable automatic checking for a new version of git-sling
  --vip                Give this proposal a higher priority than normal (use with discretion).
+
+Pipeline options:
+ --source=SOURCE_PREFIX
 
 For example, to merge to master use:
 
@@ -52,6 +55,7 @@ Or to just check if your branch can rebase & build over 'my_integration', use:
 > git propose my_integration --dry-run
 
 (Note, you shouldn't add the 'origin/' prefix.)
+
 EOF
 }
 
@@ -86,11 +90,21 @@ prompt() {
     fi
 }
 
+validate_prefix() {
+    prefix_regex='^[a-zA-Z0-9_]+/$'
+    echo "$1" | grep -E $prefix_regex >/dev/null || (
+        echo "Invalid prefix: '"$1"'"
+        exit 1
+    )
+}
+
 IS_DRY_RUN=false
 UPGRADE_CHECK=false
 ONTO_PREFIX="onto"
 ONTO_BRANCH=""
 IS_VIP=false
+SOURCE_PREFIX=""
+
 for arg in "$@"; do
     case $arg in
         --dry-run)
@@ -106,6 +120,16 @@ for arg in "$@"; do
         --vip)
             IS_VIP=true
             ;;
+        --source=*)
+            SOURCE_PREFIX="${arg#*=}/"
+            validate_prefix "$SOURCE_PREFIX"
+            shift
+            ;;
+        -*)
+            show_usage
+            echo "ERROR: Unknown or invalid option: $arg"
+            exit 1
+            ;;
         *)
             ONTO_BRANCH="$arg"
             ;;
@@ -115,7 +139,7 @@ done
 if [ -z "$ONTO_BRANCH" ]; then
     show_usage
     echo
-    echo "ERROR: target branch not specified."
+    echo "ERROR: merge branch not specified."
     exit 1
 fi
 
@@ -144,9 +168,9 @@ then
     NEXT_INDEX=1
 else
     INDEX=$(git branch -r | \
-                   (grep -E "$PROPOSED_PREFIX[0-9]+" \
+                   (grep -E "$PROPOSED_PREFIX/[0-9]+" \
                            || echo 0) | \
-                   ${SCRIPT_DIR}/sed.sh -r "s,.*$PROPOSED_PREFIX([0-9]+).*,\1,g" | \
+                   ${SCRIPT_DIR}/sed.sh -r "s,.*$PROPOSED_PREFIX/([0-9]+).*,\1,g" | \
                    sort -g | \
                    tail -1)
     NEXT_INDEX=$(($INDEX + 1))
@@ -156,7 +180,7 @@ git config user.email | grep "\-at\-" && \
       echo " we don't support    that!";
       exit 1)
 EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
-REMOTE_BRANCH="${PROPOSED_PREFIX}$NEXT_INDEX/$PROPOSED_BRANCH/base/$BASE_COMMIT/$ONTO_PREFIX/$ONTO_BRANCH/user/$EMAIL"
+REMOTE_BRANCH="${SLING_PREFIX}/${SOURCE_PREFIX}${PROPOSED_PREFIX}/$NEXT_INDEX/$PROPOSED_BRANCH/base/$BASE_COMMIT/$ONTO_PREFIX/$ONTO_BRANCH/user/$EMAIL"
 
 COMMIT_COUNT=$(git log --oneline $BASE_COMMIT..HEAD | wc -l)
 
