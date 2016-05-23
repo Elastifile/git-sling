@@ -3,7 +3,7 @@
 {-# LANGUAGE TupleSections     #-}
 module Main where
 
-import           Control.Monad (when, unless, join)
+import           Control.Monad (when, unless, join, void)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Lazy as LBS
@@ -39,7 +39,7 @@ import           Text.Blaze.Html (toHtml, (!))
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
 import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
-import Control.Concurrent (killThread, threadDelay)
+import Control.Concurrent (threadDelay)
 import           Options.Applicative
 
 getFullHostName :: IO Net.HostName
@@ -350,7 +350,7 @@ parseModeBranches :: Parser ProposalMode
 parseModeBranches =
     (flag' (ProposalFromBranch Nothing)
      (short 's' <>
-      long "Read a single proposal from branch"))
+      long "Process proposals from current (no polling) branches: Fetch current branches and process all existing proposals, then exit"))
     <|> (ProposalFromBranch <$>
             (optional $ option auto
                 (short 'd' <>
@@ -467,24 +467,23 @@ serverPoll currentState options = do
             return True
 
 serverLoop :: IORef CurrentState -> Maybe Int -> Options -> EShell ()
-serverLoop currentState interval options = do
+serverLoop currentState mInterval options = do
+    void $ liftIO $ forkServer (optWebServerPort options) (readIORef currentState)
     let go = do
             havePending <- serverPoll currentState options
             if havePending
                 then go
-                else case interval of
-                         Nothing -> return ()
-                         Just d -> do
-                             liftIO $ threadDelay $ d*1000000
-                             go
+                else case mInterval of
+                    Nothing -> return ()
+                    Just interval -> do
+                        liftIO $ threadDelay $ interval*1000000
+                        go
     go
 
 main :: IO ()
 main = runEShell $ do
     options <- liftIO $ parseOpts
     currentState <- liftIO $ newIORef emptyCurrentState
-    serverThread <- liftIO $ forkServer (optWebServerPort options) (readIORef currentState)
     case optProposalMode options of
         ProposalFromBranch interval -> serverLoop currentState interval options
         ProposalFromCommandLine proposal -> handleSpecificProposal currentState options proposal
-    liftIO $ killThread serverThread
