@@ -87,7 +87,7 @@ exec_test "tests/matching.sh"
 exec_test "tests/order.sh"
 exec_test "tests/multi-propose.sh"
 exec_test "tests/specific-proposal.sh"
-
+exec_test "tests/source-target.sh"
 
 echo '
  #####  #     #  #####   #####  #######  #####   #####
