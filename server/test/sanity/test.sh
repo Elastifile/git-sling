@@ -70,6 +70,8 @@ logit fetch -p
 exec_test() {
     cd_client
     logit fetch -p
+    logit checkout master
+    logit reset --hard origin/master
     echo "----------------------------------------------------------------------"
     echo "Running test: $1"
     source "$script_dir/$1"
