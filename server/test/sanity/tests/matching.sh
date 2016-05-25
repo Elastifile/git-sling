@@ -26,6 +26,18 @@ git log --format="%H %s" origin/master              | grep "test_not_matching" &
 cd_server
 
 echo "Expecting success..."
+run_cmd $sling_server $prepush --exclude-branches 'branch_not' || fail "ERROR: Server should succeed!"
+
+cd_client
+
+logit fetch -p
+
+git log --format="%H %s" origin/branch_not_matching | grep "test_not_matching" && fail "Expected branch_not_matching branch to NOT include the new commit"
+git log --format="%H %s" origin/master              | grep "test_not_matching" && fail "Expected master branch to NOT include the new commit"
+
+cd_server
+
+echo "Expecting success..."
 run_cmd $sling_server $prepush --match-non-dry-run-branches '.*not_matching.*' || fail "ERROR: Server should succeed!"
 
 cd_client

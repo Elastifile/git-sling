@@ -318,6 +318,7 @@ data ProposalMode
 data Options =
     Options
     { optBranchFilterAll :: Maybe String
+    , optBranchExcludeFilterAll :: Maybe String
     , optBranchFilterDryRun :: Maybe String
     , optBranchFilterNoDryRun :: Maybe String
     , optWebServerPort :: Int
@@ -373,6 +374,10 @@ parser = Options
           metavar "PATTERN" <>
           help "Regex pattern to match 'onto' branch name in any proposal."))
     <*> (optional $ strOption
+         (long "exclude-branches" <>
+          metavar "PATTERN" <>
+          help "Regex pattern to exclude 'onto' branch name in any proposal."))
+    <*> (optional $ strOption
          (long "match-dry-run-branches" <>
           metavar "PATTERN" <>
           help "Regex pattern to match 'onto' branch name in dry run proposals."))
@@ -412,6 +417,7 @@ shouldConsiderProposal :: Options -> Proposal -> Bool
 shouldConsiderProposal options proposal =
     (ProposalProposed == proposalStatus proposal)
     && (fromMaybe True $ checkFilter <$> optBranchFilterAll options)
+    && (fromMaybe True $ not . checkFilter <$> optBranchExcludeFilterAll options)
     && (fromMaybe True $ ((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun options)
     && (fromMaybe True $ (proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun options)
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
@@ -435,7 +441,8 @@ serverPoll currentState options = do
 
     liftIO $ putStrLn $ mconcat $ List.intersperse "\n\t"
         [ "Filters: "
-        , maybe "" ("branch filter: " <> ) (optBranchFilterAll options)
+        , maybe "" ("match filter: " <> ) (optBranchFilterAll options)
+        , maybe "" ("exclude filter: " <> ) (optBranchExcludeFilterAll options)
         , maybe "" ("dry run branch filter: " <> ) (optBranchFilterDryRun options)
         , maybe "" ("non-dry-run branch filter: " <> ) (optBranchFilterNoDryRun options)
         ]
