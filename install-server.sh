@@ -11,8 +11,10 @@ sling_user="build"
 function configure_cron() {
   echo "Configuring cron..."
   crontab -r || echo "crontab -r failed, ignoring."
+  set +o pipefail
   crontab -l | { cat; echo "* * * * * ssh-agent $script_dir/sling-build-cron.sh"; } | crontab -
   crontab -l | { cat; echo "0 0 * * * rm /tmp/core_*"; } | crontab -
+  set -o pipefail
 }
 
 function configure_sudoers() {
