@@ -89,8 +89,11 @@ configure_config() {
 
 main() {
   whoami | grep -E '^build$' || ( echo "Expecting to run under user 'build'"; exit 1)
-  sudo yum install epel-release
-  sudo yum install docker git zlib-devel
+  deps="docker git zlib-devel"
+  rpm -qi $deps || (
+      sudo yum install -y epel-release
+      sudo yum install -y $deps
+  )
   configure_sudoers
   configure_docker
   configure_stack
