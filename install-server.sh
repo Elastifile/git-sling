@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eu
+set -euxo pipefail
 
 # The script creates build machine for git-sling
 # Should be run by user build
