@@ -46,7 +46,7 @@ from $user
 logfile /dev/null
 EOF
 
-  sudo chown $sling_user:$sling_user /opt/msmtp.conf
+  sudo chown $sling_user /opt/msmtp.conf
   sudo chmod 600 /opt/msmtp.conf
 
 }
@@ -54,7 +54,7 @@ EOF
 create_workdir() {
   echo "Creating workdir..."
   sudo mkdir -p /build-workdir
-  sudo chown $sling_user:$sling_user /build-workdir
+  sudo chown $sling_user /build-workdir
   sudo chmod 755 /build-workdir
 }
 
