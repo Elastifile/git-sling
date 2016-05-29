@@ -6,7 +6,7 @@ set -euxo pipefail
 script_dir=$(dirname $(realpath $0))
 
 
-sling_user="build"
+sling_user="sling"
 
 function configure_cron() {
   echo "Configuring cron..."
