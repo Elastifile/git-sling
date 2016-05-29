@@ -6,6 +6,8 @@ set -euxo pipefail
 script_dir=$(dirname $(realpath $0))
 
 
+sling_user="build"
+
 function configure_cron() {
   echo "Configuring cron..."
   crontab -r || echo "crontab -r failed, ignoring."
@@ -18,7 +20,7 @@ function configure_sudoers() {
   if ! sudo true ;
   then
     echo "Enter root password (for setting up sudoers):"
-    su - root -c bash -c "echo 'build   ALL=(ALL)       NOPASSWD: ALL' >> /etc/sudoers"
+    su - root -c bash -c "echo $sling_user   ALL=(ALL)       NOPASSWD: ALL >> /etc/sudoers"
   fi
 }
 
@@ -44,7 +46,7 @@ from $user
 logfile /dev/null
 EOF
 
-  sudo chown build:build /opt/msmtp.conf
+  sudo chown $sling_user:$sling_user /opt/msmtp.conf
   sudo chmod 600 /opt/msmtp.conf
 
 }
@@ -52,7 +54,7 @@ EOF
 create_workdir() {
   echo "Creating workdir..."
   sudo mkdir -p /build-workdir
-  sudo chown build:build /build-workdir
+  sudo chown $sling_user:$sling_user /build-workdir
   sudo chmod 755 /build-workdir
 }
 
@@ -71,15 +73,15 @@ configure_stack() {
 
 configure_ulimit() {
     echo "Configuring ulimit..."
-    sudo sed -ri 's, *build .*nofile .*,,g' /etc/security/limits.conf
-    sudo bash -c "echo 'build - nofile 65535' >> /etc/security/limits.conf"
+    sudo sed -ri "s, *$sling_user .*nofile .*,,g" /etc/security/limits.conf
+    sudo bash -c "echo $sling_user - nofile 65535 >> /etc/security/limits.conf"
     sudo sed -ri 's,fs.file-max.*,,g' /etc/sysctl.conf
     sudo bash -c "echo 'fs.file-max = 100000' >> /etc/sysctl.conf"
     sudo sysctl -p
 }
 
 configure_docker() {
-    sudo usermod -a -G docker build
+    sudo usermod -a -G docker $sling_user
 }
 
 configure_config() {
@@ -88,7 +90,7 @@ configure_config() {
 }
 
 main() {
-  whoami | grep -E '^build$' || ( echo "Expecting to run under user 'build'"; exit 1)
+  whoami | grep -E "^$sling_user\$" || ( echo "Expecting to run under user $sling_user"; exit 1)
   deps="docker-engine git zlib-devel"
   rpm -qi $deps || (
       sudo yum install -y epel-release
