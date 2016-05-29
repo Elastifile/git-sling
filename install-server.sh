@@ -22,7 +22,7 @@ function configure_sudoers() {
   if ! sudo true ;
   then
     echo "Enter root password (for setting up sudoers):"
-    su - root -c bash -c "echo $sling_user   ALL=(ALL)       NOPASSWD: ALL >> /etc/sudoers"
+    su - root -c bash -c "echo $sling_user   ALL=\(ALL\)       NOPASSWD: ALL >> /etc/sudoers"
   fi
 }
 

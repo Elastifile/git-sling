@@ -7,6 +7,8 @@ keyfile=$(mktemp)
 
 sling_user="sling"
 workdir="/build-workdir"
+git_remote_url="https://github.com/Elastifile/git-sling.git"
+# $(git config remote.origin.url)
 
 trap "rm $keyfile" EXIT
 
@@ -28,7 +30,7 @@ on_remote "sudo su - $sling_user bash -c 'cat /tmp/$keyfile_name.pub >> \$HOME/.
 on_remote "rm /tmp/$keyfile_name.pub"
 on_remote "sudo chown $sling_user $workdir"
 
-git_remote_url=$(git config remote.origin.url)
-
+sling_user_keyfile="prepush_id_rsa"
+on_remote_as_build "( test -e \$HOME/.ssh/$sling_user_keyfile || ssh-keygen -qt rsa -f \$HOME/.ssh/$sling_user_keyfile ) && cat \$HOME/.ssh/$sling_user_keyfile.pub"
 on_remote_as_build "cd $workdir && ( cd git-sling && ( git stash || true ) && git fetch -p && git checkout master && git reset --hard origin/master ) || git clone $git_remote_url"
 on_remote_as_build "cd $workdir/git-sling && ./install-server.sh"
