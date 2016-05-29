@@ -25,8 +25,9 @@ build_homedir=$(on_remote 'getent passwd $sling_user | cut -d: -f6')
 scp $keyfile.pub $target:/tmp
 on_remote "sudo su - $sling_user bash -c 'cat /tmp/$keyfile_name.pub >> \$HOME/.ssh/authorized_keys && chmod 600 \$HOME/.ssh/authorized_keys'"
 on_remote "rm /tmp/$keyfile_name.pub"
+on_remote "sudo chown $sling_user /build-workdir"
 
 git_remote_url=$(git config remote.origin.url)
 
-on_remote_as_build "mkdir -p /build-workdir && cd /build-workdir && ( cd git-sling && ( git stash || true ) && git fetch -p && git checkout master && git reset --hard origin/master ) || git clone $git_remote_url"
+on_remote_as_build "cd /build-workdir && ( cd git-sling && ( git stash || true ) && git fetch -p && git checkout master && git reset --hard origin/master ) || git clone $git_remote_url"
 on_remote_as_build "cd /build-workdir/git-sling && ./install-server.sh"
