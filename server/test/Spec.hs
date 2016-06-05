@@ -17,7 +17,7 @@ import           Sling.Proposal
 
 prop_buildParseProposal :: Proposal -> Bool
 prop_buildParseProposal p =
-    case parseProposal (proposalPrefix p) $ formatProposal p of
+    case parseProposal $ formatProposal p of
         Nothing -> False
         Just p' -> p == p'
 
@@ -75,7 +75,7 @@ instance Arbitrary Email where
     shrink (Email u d) = map (uncurry Email) $ shrink (u, d)
 
 instance Arbitrary Prefix where
-    arbitrary = Prefix . T.pack <$> arbitrary
+    arbitrary = Prefix <$> arbitrary
 
 derive makeArbitrary ''ProposalStatus
 derive makeArbitrary ''Proposal

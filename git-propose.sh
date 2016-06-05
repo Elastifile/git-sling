@@ -1,4 +1,5 @@
-#!/bin/bash -eu
+#!/bin/bash
+set -eu
 # Proposes a new branch for slinging onto staging.
 #
 # USAGE:
@@ -91,7 +92,7 @@ prompt() {
 }
 
 validate_prefix() {
-    prefix_regex='^[a-zA-Z0-9_]+/$'
+    prefix_regex='^[-a-zA-Z0-9_]+$'
     echo "$1" | grep -E $prefix_regex >/dev/null || (
         echo "Invalid prefix: '"$1"'"
         exit 1
@@ -121,8 +122,9 @@ for arg in "$@"; do
             IS_VIP=true
             ;;
         --source=*)
-            SOURCE_PREFIX="${arg#*=}/"
-            validate_prefix "$SOURCE_PREFIX"
+            RAW_SOURCE_PREFIX="${arg#*=}"
+            validate_prefix "$RAW_SOURCE_PREFIX"
+            SOURCE_PREFIX="prefix-$RAW_SOURCE_PREFIX/"
             shift
             ;;
         -*)
@@ -180,6 +182,7 @@ git config user.email | grep "\-at\-" && \
       echo " we don't support    that!";
       exit 1)
 EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
+
 REMOTE_BRANCH="${SLING_PREFIX}/${SOURCE_PREFIX}${PROPOSED_PREFIX}/$NEXT_INDEX/$PROPOSED_BRANCH/base/$BASE_COMMIT/$ONTO_PREFIX/$ONTO_BRANCH/user/$EMAIL"
 
 COMMIT_COUNT=$(git log --oneline $BASE_COMMIT..HEAD | wc -l)

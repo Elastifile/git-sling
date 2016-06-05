@@ -23,15 +23,17 @@ logit checkout master
 logit checkout -b "specific_proposal"
 add_commit_file "specific_proposal"
 
-yes | run_cmd $sling_propose master
+source_prefix="step-1"
+
+yes | run_cmd $sling_propose --source=$source_prefix master
 
 logit checkout master
-specific_proposal_branch_name=$(git branch -r | grep ' *origin/sling/proposed/.*specific_proposal.*' | cut -d/ -f2- )
+specific_proposal_branch_name=$(git branch -r | grep "$source_prefix/proposed/.*specific_proposal" | cut -d/ -f2-)
 
 cd_server
 
 echo "Expecting success..."
-run_cmd $sling_server $prepush --force-dry-run --proposal-branch $specific_proposal_branch_name || fail "Error: Server should succeed!"
+run_cmd $sling_server --force-dry-run --source-prefix $source_prefix --proposal-branch $specific_proposal_branch_name -- $prepush || fail "Error: Server should succeed!"
 
 cd_client
 
@@ -46,13 +48,13 @@ logit reset --hard origin/master
 
 logit checkout "specific_proposal"
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --source=$source_prefix master
 
 # Go back to server, run in without force dry run
 cd_server
 
 echo "Expecting success..."
-run_cmd $sling_server $prepush --proposal-branch $specific_proposal_branch_name || fail "Error: Server should succeed!"
+run_cmd $sling_server --source-prefix $source_prefix --proposal-branch $specific_proposal_branch_name -- $prepush || fail "Error: Server should succeed!"
 
 cd_client
 

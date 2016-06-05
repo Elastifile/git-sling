@@ -7,8 +7,8 @@ import qualified Sling.Git           as Git
 import           Sling.Lib           (Email (..), NatInt, formatSepEmail,
                                       fromNatInt, fromNonEmptyText, hash,
                                       natInt, nonEmptyText, singleMatch,
-                                      someText)
-
+                                      NonEmptyText, someText)
+import           Control.Monad       (void)
 import           Control.Applicative ((<|>))
 import           Data.Monoid         ((<>))
 import           Turtle              (Pattern, alphaNum, char, decimal, eof,
@@ -24,8 +24,14 @@ emailPat sep = do
     domain <- nonEmptyText . T.pack <$> some (alphaNum <|> oneOf ".-")
     return $ Email user domain
 
-newtype Prefix = Prefix { fromPrefix :: Text }
+newtype Prefix = Prefix { fromPrefix :: NonEmptyText }
       deriving (Show, Eq)
+
+prefixToText :: Prefix -> Text
+prefixToText = fromNonEmptyText . fromPrefix
+
+prefixFromText :: Text -> Prefix
+prefixFromText = Prefix . nonEmptyText
 
 data Proposal
     = Proposal
@@ -46,10 +52,13 @@ ontoPrefix = "onto"
 dryRunOntoPrefix :: Text
 dryRunOntoPrefix = "dry-run-onto"
 
+proposalPrefixPrefix :: Text
+proposalPrefixPrefix = "prefix-"
+
 formatProposal :: Proposal -> Text
 formatProposal p = "sling/" <> prefix <> "/" <> suffix
     where
-        prefix = maybe T.empty (\x -> fromPrefix x <> "/") (proposalPrefix p) <>
+        prefix = maybe T.empty (\x -> (proposalPrefixPrefix <> prefixToText x) <> "/") (proposalPrefix p) <>
             case proposalStatus p of
                 ProposalProposed -> proposedPrefix
                 ProposalRejected -> rejectBranchPrefix
@@ -80,33 +89,44 @@ formatRef (Git.RefBranch (Git.RemoteBranch r n)) = "R-" <> fromNonEmptyText (Git
 formatRef r@(Git.RefBranch (Git.LocalBranch{})) = "L-" <> Git.refName r
 formatRef r = Git.refName r
 
-proposalPat :: (Maybe Prefix) -> Pattern Proposal
-proposalPat mPrefix = do
-    _ <- text "sling/"
-    case mPrefix of
-        Nothing -> return ()
-        Just p -> do
-            _ <- text $ fromPrefix p
-            _ <- char '/'
-            return ()
-    ps <- (text proposedPrefix *> pure ProposalProposed) <|> (text rejectBranchPrefix *> pure ProposalRejected)
-    _ <- char '/'
-    index <- natInt <$> decimal
-    _ <- char '/'
-    name <- Git.mkBranchName <$> someText
-    _ <- text "/base/"
-    baseRef <- refPat
-    _ <- char '/'
-    isDryRun <- (text ontoPrefix *> pure False) <|> (text dryRunOntoPrefix *> pure True)
-    _ <- char '/'
-    ontoRef <- Git.mkBranchName <$> someText
-    _ <- text "/user/"
-    email <- emailPat "-at-"
-    _ <- eof
-    return $ Proposal email name baseRef ontoRef index ps isDryRun mPrefix
+fieldSep :: Pattern ()
+fieldSep = void $ char '/'
 
-parseProposal :: Maybe Prefix -> Text -> Maybe Proposal
-parseProposal prefix = singleMatch (proposalPat prefix)
+proposalPat :: Pattern Proposal
+proposalPat = do
+    _ <- text slingPrefix
+
+    prefix <- (text ("/" <> proposalPrefixPrefix) *> (Just . Prefix . nonEmptyText <$> (someText <* fieldSep))) <|> (fieldSep *> pure Nothing)
+
+    ps <- (text proposedPrefix *> pure ProposalProposed) <|> (text rejectBranchPrefix *> pure ProposalRejected)
+    fieldSep
+
+    index <- natInt <$> decimal
+    fieldSep
+
+    name <- Git.mkBranchName <$> someText
+    fieldSep
+
+    _ <- text "base"
+    fieldSep
+    baseRef <- refPat
+    fieldSep
+
+    isDryRun <- (text ontoPrefix *> pure False) <|> (text dryRunOntoPrefix *> pure True)
+    fieldSep
+
+    ontoRef <- Git.mkBranchName <$> someText
+    fieldSep
+
+    _ <- text "user"
+    fieldSep
+    email <- emailPat "-at-"
+
+    _ <- eof
+    return $ Proposal email name baseRef ontoRef index ps isDryRun prefix
+
+parseProposal :: Text -> Maybe Proposal
+parseProposal = singleMatch proposalPat
 
 slingPrefix :: Text
 slingPrefix = "sling"
