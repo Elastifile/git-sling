@@ -52,7 +52,7 @@ runPrepush :: FilePath -> [String] -> Ref -> Ref -> EShell ()
 runPrepush logFile cmd baseR headR = do
     let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
     liftIO $ putStrLn . T.unpack $ "Executing bash with: " <> args <> " output goes to: " <> T.pack logFile
-    _output <- eprocsL "bash" ["-c", args <> " &>" <> T.pack logFile]
+    _output <- eprocsL "bash" ["-o", "pipefail", "-c", args <> " 2>&1 | tee " <> T.pack logFile]
     -- TODO delete log if successful?
     return ()
 
