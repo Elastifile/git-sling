@@ -66,11 +66,11 @@ encodeFP = T.pack . BS8.unpack . FP.encode
 runPrepush :: PrepushLogs -> [String] -> Ref -> Ref -> EShell ()
 runPrepush (PrepushLogs logDir logFile) cmd baseR headR = do
     let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
-        env_str = "SLING_LOG_DIR=" <> encodeFP logDir <> ";"
+        env_str = "SLING_LOG_DIR=" <> encodeFP logDir
         redirect :: Int -> Text
         redirect fd = "exec " <> T.pack (show fd) <> ">> " <> encodeFP logFile <> ";"
     liftIO $ putStrLn . T.unpack $ "Executing bash with: " <> args <> " output goes to: " <> encodeFP logFile
-    _output <- eprocsL "bash" ["-o", "pipefail", "-c", env_str <> redirect 1 <> redirect 2 <> args]
+    _output <- eprocsL "bash" ["-o", "pipefail", "-c", redirect 1 <> redirect 2 <> env_str <> " " <> args]
     -- TODO delete log if successful?
     return ()
 
