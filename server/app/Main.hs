@@ -13,8 +13,9 @@ import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.String (fromString)
 import           Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as L
-import           Data.Text.Lazy.Encoding (decodeUtf8, encodeUtf8)
+import qualified Data.Text.Lazy.Encoding as LE
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..), branchName,
@@ -37,7 +38,8 @@ import qualified Network.BSD as Net
 import qualified Filesystem.Path.CurrentOS as FP
 import           Filesystem.Path.CurrentOS (FilePath)
 
-
+import           System.IO (withFile, hSeek, SeekMode(..), IOMode(..), hFileSize)
+import           System.IO.Error (tryIOError)
 import           System.IO.Temp (createTempDirectory)
 import           Text.Blaze.Html (toHtml, (!))
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
@@ -81,12 +83,26 @@ resetLocalOnto proposal = do
     Git.checkout (LocalBranch ontoBranchName)
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
 
-addAttachment :: Text -> FilePath -> Text -> IO Mail.Part
-addAttachment ct fn attachedFN = do
-    content <- LBS.readFile $ T.unpack $ encodeFP fn
-    let part = Mail.Part ct Mail.QuotedPrintableText (Just attachedFN) []
-               (encodeUtf8 ("<html><body><pre>" <> renderHtml (toHtml . L.toStrict $ decodeUtf8 content) <> "</pre></body></html>"))
-    return part
+addAttachment :: FilePath -> Text -> IO (Maybe Mail.Part)
+addAttachment fn attachedFN = do
+    res <- liftIO $ tryIOError $ withFile (T.unpack $ encodeFP fn) ReadMode $
+        \handle -> do
+            size <- hFileSize handle
+            -- SeekFromEnd seems broken
+            hSeek handle AbsoluteSeek (max 0 (size - (1024*1024)))
+            BS8.hGetContents handle
+    case res of
+        Left err -> do
+            putStrLn $ "Failed reading from file: " <> show fn <> ", error: " <> show err
+            return Nothing
+        Right contents
+            | BS8.length contents == 0 -> do
+                  putStrLn $ "Empty data in file: " <> show fn
+                  return Nothing
+            | otherwise ->
+                  return $ Just
+                  $ Mail.Part "text/html; charset=utf-8" Mail.QuotedPrintableText (Just attachedFN) []
+                  (LE.encodeUtf8 ("<html><body><pre>" <> renderHtml (toHtml $ TE.decodeUtf8 contents) <> "</pre></body></html>"))
 
 isDryRun :: Options -> Proposal -> Bool
 isDryRun options proposal = optForceDryRun options || proposalDryRun proposal
@@ -110,20 +126,19 @@ sendProposalEmail options proposal subject body prepushLogs = do
     mail <- case prepushLogs of
         Nothing -> return mail1
         Just (PrepushLogs logDir fullLogOutputFile) -> do
-            logPart <- liftIO $ addAttachment "text/html; charset=utf-8" fullLogOutputFile "log.html"
+            logPart <- liftIO $ addAttachment fullLogOutputFile "logtail.html"
             let tarName = encodeFP logDir <> ".tgz"
             _tarOut <-
                 eprocsL "bash" ["-o", "pipefail", "-c",
                                 "tar czvf " <> tarName <> " " <> (encodeFP logDir)]
             content <- liftIO $ LBS.readFile $ T.unpack tarName
             let tarPart = Mail.Part "application/gzip" Mail.Base64 (Just tarName) [] content
-            return $ Mail.addPart [logPart, tarPart] mail1
-
+            return $ Mail.addPart (maybe id (:) logPart [tarPart]) mail1
 
     renderdBS <- liftIO $ Mail.renderMail' mail
 
     liftIO $ putStrLn . T.unpack $ "Sending email to: " <> (formatEmail $ proposalEmail proposal) <> " with subject: " <> subject
-    _ <- eprocsIn (head $ optEmailClient options) ((tail $ optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ decodeUtf8 renderdBS)
+    _ <- eprocsIn (head $ optEmailClient options) ((tail $ optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ LE.decodeUtf8 renderdBS)
     return ()
 
 
