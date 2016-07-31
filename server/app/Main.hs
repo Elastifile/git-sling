@@ -3,6 +3,7 @@
 {-# LANGUAGE TupleSections     #-}
 module Main where
 
+import           Control.Concurrent (forkIO)
 import           Control.Monad (when, unless, join, void)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
@@ -139,8 +140,8 @@ sendProposalEmail options proposal subject body prepushLogs = do
 
     renderdBS <- liftIO $ Mail.renderMail' mail
 
-    liftIO $ putStrLn . T.unpack $ "Sending email to: " <> (formatEmail $ proposalEmail proposal) <> " with subject: " <> subject
-    _ <- eprocsIn (head $ optEmailClient options) ((tail $ optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ LE.decodeUtf8 renderdBS)
+    liftIO $ putStrLn . T.unpack $ "Sending email (async) to: " <> (formatEmail $ proposalEmail proposal) <> " with subject: " <> subject
+    liftIO $ void $ forkIO $ runEShell $ eprocsIn (head $ optEmailClient options) ((tail $ optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ LE.decodeUtf8 renderdBS)
     return ()
 
 
