@@ -25,6 +25,7 @@ library
                      , mime-mail >= 0.4.10
                      , mtl >= 2.2.1
                      , network >= 2.6.2.1
+                     , system-filepath >= 0.4
                      , temporary >= 1.2.0.3
                      , text >= 1.2.1.3
                      , time >= 1.5.0.1
@@ -44,6 +45,7 @@ executable sling-server-exe
                      , either
                      , mime-mail >= 0.4.10
                      , mtl >= 2.2.1
+                     , system-filepath >= 0.4
                      , network >= 2.6.2.1
                      , optparse-applicative >= 0.11.0.2
                      , regex-posix >= 0.95.2

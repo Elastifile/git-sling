@@ -7,6 +7,7 @@ import           Control.Monad (when, unless, join, void)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Char8 as BS8
 import           Data.IORef
 import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.String (fromString)
@@ -29,10 +30,13 @@ import           Turtle (ExitCode, (&))
 
 import qualified Data.List as List
 
-import           Network.Mail.Mime (Mail)
 import qualified Network.Mail.Mime as Mail
 import Network.BSD (getHostName, getHostByName)
 import qualified Network.BSD as Net
+
+import qualified Filesystem.Path.CurrentOS as FP
+import           Filesystem.Path.CurrentOS (FilePath)
+
 
 import           System.IO.Temp (createTempDirectory)
 import           Text.Blaze.Html (toHtml, (!))
@@ -42,17 +46,26 @@ import qualified Text.Blaze.Html5.Attributes as A
 import Control.Concurrent (threadDelay)
 import           Options.Applicative
 
+import           Prelude hiding (FilePath)
+
+data PrepushLogs = PrepushLogs { prepushLogDir :: FilePath, prepushFullLogFilePath :: FilePath }
+    deriving (Show)
+
 getFullHostName :: IO Net.HostName
 getFullHostName = Net.hostName <$> (getHostName >>= getHostByName)
 
 pollingInterval :: Int
 pollingInterval = 1000000 * 10
 
-runPrepush :: FilePath -> [String] -> Ref -> Ref -> EShell ()
-runPrepush logFile cmd baseR headR = do
+encodeFP :: FilePath -> T.Text
+encodeFP = T.pack . BS8.unpack . FP.encode
+
+runPrepush :: PrepushLogs -> [String] -> Ref -> Ref -> EShell ()
+runPrepush (PrepushLogs logDir logFile) cmd baseR headR = do
     let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
-    liftIO $ putStrLn . T.unpack $ "Executing bash with: " <> args <> " output goes to: " <> T.pack logFile
-    _output <- eprocsL "bash" ["-o", "pipefail", "-c", args <> " 2>&1 | tee " <> T.pack logFile]
+        env_str = "SLING_LOG_DIR=" <> encodeFP logDir
+    liftIO $ putStrLn . T.unpack $ "Executing bash with: " <> args <> " output goes to: " <> encodeFP logFile
+    _output <- eprocsL "bash" ["-o", "pipefail", "-c", env_str <> " " <> args <> " 2>&1 | tee " <> encodeFP logFile]
     -- TODO delete log if successful?
     return ()
 
@@ -68,18 +81,18 @@ resetLocalOnto proposal = do
     Git.checkout (LocalBranch ontoBranchName)
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
 
-addAttachment :: Text -> FilePath -> Text -> Mail -> IO Mail
-addAttachment ct fn attachedFN mail = do
-    content <- LBS.readFile fn
+addAttachment :: Text -> FilePath -> Text -> IO Mail.Part
+addAttachment ct fn attachedFN = do
+    content <- LBS.readFile $ T.unpack $ encodeFP fn
     let part = Mail.Part ct Mail.QuotedPrintableText (Just attachedFN) []
                (encodeUtf8 ("<html><body><pre>" <> renderHtml (toHtml . L.toStrict $ decodeUtf8 content) <> "</pre></body></html>"))
-    return $ Mail.addPart [part] mail
+    return part
 
 isDryRun :: Options -> Proposal -> Bool
 isDryRun options proposal = optForceDryRun options || proposalDryRun proposal
 
-sendProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe FilePath -> EShell ()
-sendProposalEmail options proposal subject body logFile = do
+sendProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> EShell ()
+sendProposalEmail options proposal subject body prepushLogs = do
     webHref <- liftIO $ (<> (":" <> show (optWebServerPort options))) . ("http://" <>) <$> getFullHostName
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
@@ -94,9 +107,18 @@ sendProposalEmail options proposal subject body logFile = do
                 H.p $ H.a H.! A.href (H.preEscapedToValue webHref)  $ "Sling Server Status")
         []
 
-    mail <- case logFile of
+    mail <- case prepushLogs of
         Nothing -> return mail1
-        Just f -> liftIO $ addAttachment "text/html; charset=utf-8" f "log.html" mail1
+        Just (PrepushLogs logDir fullLogOutputFile) -> do
+            logPart <- liftIO $ addAttachment "text/html; charset=utf-8" fullLogOutputFile "log.html"
+            let tarName = encodeFP logDir <> ".tgz"
+            _tarOut <-
+                eprocsL "bash" ["-o", "pipefail", "-c",
+                                "tar czvf " <> tarName <> " " <> (encodeFP logDir)]
+            content <- liftIO $ LBS.readFile $ T.unpack tarName
+            let tarPart = Mail.Part "application/gzip" Mail.Base64 (Just tarName) [] content
+            return $ Mail.addPart [logPart, tarPart] mail1
+
 
     renderdBS <- liftIO $ Mail.renderMail' mail
 
@@ -126,14 +148,14 @@ slingBranchName :: Maybe Prefix -> Text -> Git.BranchName
 slingBranchName Nothing suffix = mkBranchName suffix
 slingBranchName (Just prefix) suffix = mkBranchName $ prefixToText prefix <> suffix
 
-rejectProposal :: Options -> Proposal -> Text -> Maybe FilePath -> (Text, ExitCode) -> EShell ()
-rejectProposal options proposal reason logFile (msg, err) = do
+rejectProposal :: Options -> Proposal -> Text -> Maybe PrepushLogs -> (Text, ExitCode) -> EShell ()
+rejectProposal options proposal reason prepushLogs (msg, err) = do
     let rejectedProposal = proposal { proposalStatus = ProposalRejected }
         rejectBranchName = formatProposal rejectedProposal
         origBranchName = formatProposal proposal
         msgBody = "REJECT " <> origBranchName <> " because: '" <> reason <> "' (" <> msg <> "), exit code = " <> T.pack (show err)
     liftIO $ putStrLn . T.unpack $ msgBody
-    sendProposalEmail options proposal ("Rejecting (" <> msg <> ")") (toHtml msgBody) logFile
+    sendProposalEmail options proposal ("Rejecting (" <> msg <> ")") (toHtml msgBody) prepushLogs
     Git.fetch & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
     Git.deleteBranch (LocalBranch $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
@@ -148,7 +170,7 @@ rejectProposal options proposal reason logFile (msg, err) = do
 
 attemptBranchOrAbort :: IORef CurrentState -> Options -> Branch -> Proposal -> EShell ()
 attemptBranchOrAbort currentState options branch proposal = do
-    dirPath <- liftIO $ createTempDirectory "/tmp" "sling.log"
+    dirPath <- FP.decodeString <$> (liftIO $ createTempDirectory "/tmp" "sling.log")
     attemptBranch currentState options dirPath branch proposal `catchError` abortAttempt currentState options proposal
 
 htmlFormatCommit :: Maybe Text -> Git.LogEntry -> H.Html
@@ -261,10 +283,11 @@ attemptBranch currentState options logDir branch proposal = do
     Git.merge Git.MergeFFOnly (LocalBranch ontoBranchName)
 
     -- DO IT!
-    logFileName <- T.unpack . head <$> eprocsL "mktemp" ["-p", T.pack logDir, "prepush.XXXXXXX.txt"]
-    liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just logFileName }
-    runPrepush logFileName (optCommandAndArgs options) finalBase finalHead
-        `catchError` rejectProposal options proposal "Prepush command failed" (Just logFileName)
+    logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
+    let prepushLogs = PrepushLogs logDir (FP.fromText logFileName)
+    liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just $ T.unpack logFileName }
+    runPrepush prepushLogs (optCommandAndArgs options) finalBase finalHead
+        `catchError` rejectProposal options proposal "Prepush command failed" (Just prepushLogs)
 
     liftIO $ putStrLn $ "Prepush command ran succesfully"
 
@@ -275,12 +298,12 @@ attemptBranch currentState options logDir branch proposal = do
                 Git.deleteLocalBranch niceBranchName & ignoreError
             if isDryRun options proposal
             then do
-                sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just logFileName)
+                sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs)
             else do
                 -- TODO ensure not dirty
                 liftIO $ putStrLn . T.unpack $ "Updating: " <> fromBranchName ontoBranchName
                 Git.push -- TODO -u origin master
-                sendProposalEmail options proposal "Merged successfully" "" (Just logFileName)
+                sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs)
         Just targetPrefix -> do
             let targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix }
                 targetBranchName = mkBranchName targetProposalName
@@ -292,7 +315,7 @@ attemptBranch currentState options logDir branch proposal = do
             _ <- Git.createRemoteTrackingBranch origin targetBranchName
             Git.checkout (LocalBranch ontoBranchName)
             Git.deleteLocalBranch targetBranchName
-            sendProposalEmail options proposal ("Ran successfully, moved to: " <> prefixToText targetPrefix) "" (Just logFileName)
+            sendProposalEmail options proposal ("Ran successfully, moved to: " <> prefixToText targetPrefix) "" (Just prepushLogs)
             return ()
 
     Git.checkout (LocalBranch ontoBranchName)
