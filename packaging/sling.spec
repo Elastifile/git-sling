@@ -11,7 +11,7 @@ BuildRoot:      %(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
 
 # NOTE: This spec does not adhere to GHC packaging under Fedora.
 # Instead, it uses Stack from the internet.
-
+BuildRequires:  zlib-devel
 BuildRequires:  gmp-devel
 BuildRequires:  python
 BuildRequires:  chrpath
