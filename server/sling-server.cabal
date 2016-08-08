@@ -34,7 +34,7 @@ library
                      , wai >= 3.0.4.0
   default-language:    Haskell2010
 
-executable sling-server-exe
+executable sling
   hs-source-dirs:      app
   main-is:             Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall

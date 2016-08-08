@@ -8,7 +8,7 @@ prepush="./tools/prepush.sh"
 
 sling_dir=$script_dir/../../..
 send_email=$script_dir/send_email.sh
-sling_server="$(stack path --project-root)/$(stack path --dist-dir)/build/sling-server-exe/sling-server-exe --email-client $send_email"
+sling_server="$(stack path --project-root)/$(stack path --dist-dir)/build/sling/sling --email-client $send_email"
 sling_propose="bash -x $sling_dir/git-propose.sh --no-upgrade-check"
 
 fail() {
