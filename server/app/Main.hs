@@ -392,12 +392,14 @@ parseModeBranches :: Parser ProposalMode
 parseModeBranches =
     (flag' (ProposalFromBranch Nothing)
      (short 's' <>
-      long "Process proposals from current (no polling) branches: Fetch current branches and process all existing proposals, then exit"))
+      long "single" <>
+      help "Process proposals from current (no polling) branches: Fetch current branches and process all existing proposals, then exit"))
     <|> (ProposalFromBranch <$>
             (optional $ option auto
                 (short 'd' <>
                  metavar "T" <>
-                 long "Poll proposals from branches, checking git status every T seconds")))
+                 long "daemon" <>
+                 help "Poll proposals from branches, checking git status every T seconds")))
     <|> (ProposalFromCommandLine . parseProposalFromCmdLine <$>
          (strOption (long "proposal-branch" <>
                      short 'b' <>
