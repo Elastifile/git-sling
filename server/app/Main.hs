@@ -231,9 +231,9 @@ setStateProposal currentState proposal commits = do
     mapM_ print commits
 
 attemptBranch :: IORef CurrentState -> Options -> FilePath -> Branch -> Proposal -> EShell ()
-attemptBranch currentState options logDir branch proposal = do
+attemptBranch currentState options logDir proposalBranch proposal = do
     Git.fetch
-    commits <- Git.log (proposalBranchBase proposal) (RefBranch branch)
+    commits <- Git.log (proposalBranchBase proposal) (RefBranch proposalBranch)
 
     liftIO $ setStateProposal currentState proposal commits
 
@@ -270,7 +270,7 @@ attemptBranch currentState options logDir branch proposal = do
     Git.deleteBranch niceBranch & ignoreError
     (Git.createLocalBranch niceBranchName RefHead >> pure ()) & ignoreError
     Git.checkout niceBranch
-    Git.reset Git.ResetHard (RefBranch branch)
+    Git.reset Git.ResetHard (RefBranch proposalBranch)
 
     -- rebase work onto target
     Git.rebase Git.Rebase { Git.rebaseBase = proposalBranchBase proposal,
@@ -280,7 +280,7 @@ attemptBranch currentState options logDir branch proposal = do
         `catchError` rejectProposal options proposal "Rebase failed" Nothing
 
     liftIO $ putStrLn "Commits (after rebase): "
-    commitsAfter <- Git.log (proposalBranchBase proposal) (RefBranch branch)
+    commitsAfter <- Git.log (proposalBranchBase proposal) (RefBranch proposalBranch)
     liftIO $ mapM_ print commitsAfter
 
     -- go back to 'onto', decide whether to create a merge commit on
@@ -343,9 +343,9 @@ attemptBranch currentState options logDir branch proposal = do
     Git.checkout (LocalBranch ontoBranchName)
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
 
-    -- TODO delete logfile name
+
     liftIO $ putStrLn "Deleting proposal branch..."
-    Git.deleteBranch branch
+    Git.deleteBranch proposalBranch
 
     liftIO $ putStrLn . T.unpack $ "Finished handling proposal " <> formatProposal proposal
 
