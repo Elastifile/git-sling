@@ -216,19 +216,23 @@ proposalEmailHeader options proposal commits baseUrl = do
         when (isDryRun options proposal) $ H.span " (Dry run only, branch not moved)"
     htmlFormatCommitLog commits baseUrl
 
-attemptBranch :: IORef CurrentState -> Options -> FilePath -> Branch -> Proposal -> EShell ()
-attemptBranch currentState options logDir branch proposal = do
-    Git.fetch
-
-    time <- liftIO getPOSIXTime
-    liftIO $ modifyIORef currentState $ \state ->
+setStateProposal :: (Show a, Foldable t) => IORef CurrentState -> Proposal -> t a -> IO ()
+setStateProposal currentState proposal commits = do
+    time <- getPOSIXTime
+    modifyIORef currentState $ \state ->
         state
         { csCurrentProposal = Just (proposal, time)
         }
-    liftIO $ putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
-    liftIO $ putStrLn "Commits: "
+    putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
+    putStrLn "Commits: "
+    mapM_ print commits
+
+attemptBranch :: IORef CurrentState -> Options -> FilePath -> Branch -> Proposal -> EShell ()
+attemptBranch currentState options logDir branch proposal = do
+    Git.fetch
     commits <- Git.log (proposalBranchBase proposal) (RefBranch branch)
-    liftIO $ mapM_ print commits
+
+    liftIO $ setStateProposal currentState proposal commits
 
     commitLogHtml <- proposalEmailHeader options proposal commits <$> Git.remoteUrl origin
     let title = if isDryRun options proposal
