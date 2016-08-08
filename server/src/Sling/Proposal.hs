@@ -14,7 +14,10 @@ import           Data.Monoid         ((<>))
 import           Turtle              (Pattern, alphaNum, char, decimal, eof,
                                       hexDigit, notChar, oneOf, some, text)
 
-data ProposalStatus = ProposalProposed | ProposalRejected
+data ProposalStatus
+    = ProposalProposed
+    | ProposalInProgress
+    | ProposalRejected
       deriving (Show, Eq, Ord)
 
 emailPat :: Text -> Pattern Email
@@ -61,6 +64,7 @@ formatProposal p = "sling/" <> prefix <> "/" <> suffix
         prefix = maybe T.empty (\x -> (proposalPrefixPrefix <> prefixToText x) <> "/") (proposalPrefix p) <>
             case proposalStatus p of
                 ProposalProposed -> proposedPrefix
+                ProposalInProgress -> inProgressPrefix
                 ProposalRejected -> rejectBranchPrefix
         suffix =
             T.pack (show . fromNatInt . proposalQueueIndex $ p)
@@ -98,7 +102,9 @@ proposalPat = do
 
     prefix <- (text ("/" <> proposalPrefixPrefix) *> (Just . Prefix . nonEmptyText <$> (someText <* fieldSep))) <|> (fieldSep *> pure Nothing)
 
-    ps <- (text proposedPrefix *> pure ProposalProposed) <|> (text rejectBranchPrefix *> pure ProposalRejected)
+    ps <- (text proposedPrefix *> pure ProposalProposed)
+        <|> (text inProgressPrefix *> pure ProposalInProgress)
+        <|> (text rejectBranchPrefix *> pure ProposalRejected)
     fieldSep
 
     index <- natInt <$> decimal
@@ -137,3 +143,5 @@ rejectBranchPrefix = "rejected"
 proposedPrefix :: Text
 proposedPrefix = "proposed"
 
+inProgressPrefix :: Text
+inProgressPrefix = "in-progress"
