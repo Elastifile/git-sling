@@ -3,7 +3,6 @@
 {-# LANGUAGE TupleSections     #-}
 module Main where
 
-import           Control.Concurrent (forkIO)
 import           Control.Monad (when, unless, join, void)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
@@ -46,7 +45,7 @@ import           Text.Blaze.Html (toHtml, (!))
 import           Text.Blaze.Html.Renderer.Text (renderHtml)
 import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
-import Control.Concurrent (threadDelay)
+import           Control.Concurrent (forkIO, threadDelay)
 import           Options.Applicative
 
 import           Prelude hiding (FilePath)
@@ -133,32 +132,36 @@ sendProposalEmail options proposal subject body prepushLogs = do
             let tarName = encodeFP logDir <> ".tgz"
             _tarOut <-
                 eprocsL "bash" ["-o", "pipefail", "-c",
-                                "tar czvf " <> tarName <> " " <> (encodeFP logDir)]
+                                "tar czvf " <> tarName <> " " <> encodeFP logDir]
             content <- liftIO $ LBS.readFile $ T.unpack tarName
             let tarPart = Mail.Part "application/gzip" Mail.Base64 (Just tarName) [] content
             return $ Mail.addPart (maybe id (:) logPart [tarPart]) mail1
 
     renderdBS <- liftIO $ Mail.renderMail' mail
 
-    liftIO $ putStrLn . T.unpack $ "Sending email (async) to: " <> (formatEmail $ proposalEmail proposal) <> " with subject: " <> subject
-    liftIO $ void $ forkIO $ runEShell $ eprocsIn (head $ optEmailClient options) ((tail $ optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ LE.decodeUtf8 renderdBS)
+    liftIO $ putStrLn . T.unpack $ "Sending email (async) to: " <> formatEmail (proposalEmail proposal) <> " with subject: " <> subject
+    liftIO $ void $ forkIO $ runEShell $ eprocsIn (head $ optEmailClient options) (tail (optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ LE.decodeUtf8 renderdBS)
     return ()
 
 
 clearCurrentProposal :: IORef CurrentState -> IO ()
-clearCurrentProposal currentState = do
+clearCurrentProposal currentState =
     modifyIORef currentState $ \state ->
         state
         { csCurrentProposal = Nothing
         , csCurrentLogFile = Nothing }
 
-abortAttempt :: IORef CurrentState -> Options -> Proposal -> (Text, ExitCode) -> EShell ()
-abortAttempt currentState options proposal (msg, _err) = do
-    liftIO $ putStrLn $ "ABORTING: " ++ (show msg)
-    sendProposalEmail options proposal "Aborting" (H.html $ H.text msg) Nothing
+cleanupGit :: Proposal -> EShell ()
+cleanupGit proposal = do
     Git.rebaseAbort & ignoreError
     Git.reset Git.ResetHard RefHead
     resetLocalOnto proposal
+
+abortAttempt :: IORef CurrentState -> Options -> Proposal -> (Text, ExitCode) -> EShell ()
+abortAttempt currentState options proposal (msg, _err) = do
+    liftIO $ putStrLn $ "ABORTING: " ++ show msg
+    sendProposalEmail options proposal "Aborting" (H.html $ H.text msg) Nothing
+    cleanupGit proposal
     liftIO $ clearCurrentProposal currentState
     abort "Aborted"
 
@@ -188,13 +191,13 @@ rejectProposal options proposal reason prepushLogs (msg, err) = do
 
 attemptBranchOrAbort :: IORef CurrentState -> Options -> Branch -> Proposal -> EShell ()
 attemptBranchOrAbort currentState options branch proposal = do
-    dirPath <- FP.decodeString <$> (liftIO $ createTempDirectory "/tmp" "sling.log")
+    dirPath <- FP.decodeString <$> liftIO (createTempDirectory "/tmp" "sling.log")
     attemptBranch currentState options dirPath branch proposal `catchError` abortAttempt currentState options proposal
 
 htmlFormatCommit :: Maybe Text -> Git.LogEntry -> H.Html
 htmlFormatCommit urlPrefix l = do
     let hashCol =
-            case (join $ Git.githubCommitUrl (Git.logEntryFullHash l) <$> urlPrefix) of
+            case join $ Git.githubCommitUrl (Git.logEntryFullHash l) <$> urlPrefix of
                 Nothing -> fromString . T.unpack $ fromHash $ Git.logEntryShortHash l
                 Just url -> H.a ! A.href (fromString $ T.unpack url) $ fromString . T.unpack $ fromHash $ Git.logEntryShortHash l
     H.td hashCol
@@ -209,7 +212,7 @@ htmlFormatCommitLog commits urlPrefix = do
 proposalEmailHeader :: Options -> Proposal -> [Git.LogEntry] -> Maybe Text -> H.Html
 proposalEmailHeader options proposal commits baseUrl = do
     H.p . H.b $ "Proposal"
-    H.p . fromString $ "Proposed by: " <> (T.unpack $ formatEmail . proposalEmail $ proposal)
+    H.p . fromString $ "Proposed by: " <> T.unpack (formatEmail . proposalEmail $ proposal)
     H.p $ do
         H.span "Onto branch: "
         H.b (fromString . T.unpack . fromBranchName . proposalBranchOnto $ proposal)
@@ -241,9 +244,7 @@ attemptBranch currentState options logDir branch proposal = do
     sendProposalEmail options proposal title commitLogHtml Nothing
 
     -- cleanup leftover state from previous runs
-    Git.rebaseAbort & ignoreError
-    Git.reset Git.ResetHard RefHead
-    resetLocalOnto proposal
+    cleanupGit proposal
 
     remoteBranches <- Git.remoteBranches
 
@@ -252,7 +253,7 @@ attemptBranch currentState options logDir branch proposal = do
         ontoBranchName = proposalBranchOnto proposal
         remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
         verifyRemoteBranch rb =
-            unless (elem rb remoteBranches)
+            unless (rb `elem` remoteBranches)
             $ abort $ "No remote branch: " <> T.pack (show rb)
 
     verifyRemoteBranch (origin, ontoBranchName)
@@ -311,7 +312,7 @@ attemptBranch currentState options logDir branch proposal = do
     runPrepush prepushLogs (optCommandAndArgs options) finalBase finalHead
         `catchError` rejectProposal options proposal "Prepush command failed" (Just prepushLogs)
 
-    liftIO $ putStrLn $ "Prepush command ran succesfully"
+    liftIO $ putStrLn "Prepush command ran succesfully"
 
     case optTargetPrefix options of
         Nothing -> do
@@ -319,8 +320,7 @@ attemptBranch currentState options logDir branch proposal = do
             when (niceBranchName /= ontoBranchName) $
                 Git.deleteLocalBranch niceBranchName & ignoreError
             if isDryRun options proposal
-            then do
-                sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs)
+            then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs)
             else do
                 -- TODO ensure not dirty
                 liftIO $ putStrLn . T.unpack $ "Updating: " <> fromBranchName ontoBranchName
@@ -386,28 +386,30 @@ defaultEmailClient = ["msmtp", "-C", "/opt/msmtp.conf"]
 defaultPort :: Int
 defaultPort = 8080
 
+catchMaybe :: Maybe c -> c -> c
+catchMaybe = flip fromMaybe
+
 parseProposalFromCmdLine :: String -> Proposal
 parseProposalFromCmdLine s =
-    case parseProposal (T.pack s) of
-        Nothing -> error $ "Invalid proposal format: " ++ show s
-        Just p -> p
+    parseProposal (T.pack s)
+    `catchMaybe` error ("Invalid proposal format: " ++ show s)
 
 parseModeBranches :: Parser ProposalMode
 parseModeBranches =
-    (flag' (ProposalFromBranch Nothing)
+    flag' (ProposalFromBranch Nothing)
      (short 's' <>
       long "single" <>
-      help "Process proposals from current (no polling) branches: Fetch current branches and process all existing proposals, then exit"))
+      help "Process proposals from current (no polling) branches: Fetch current branches and process all existing proposals, then exit")
     <|> (ProposalFromBranch <$>
-            (optional $ option auto
+            optional (option auto
                 (short 'd' <>
                  metavar "T" <>
                  long "daemon" <>
                  help "Poll proposals from branches, checking git status every T seconds")))
     <|> (ProposalFromCommandLine . parseProposalFromCmdLine <$>
-         (strOption (long "proposal-branch" <>
-                     short 'b' <>
-                     help "A proposal branch name to handle")))
+         strOption (long "proposal-branch" <>
+                    short 'b' <>
+                    help "A proposal branch name to handle"))
 
 prefixOption :: Mod OptionFields String -> Parser Prefix
 prefixOption args = prefixFromText . verify . T.pack <$> strOption args
@@ -415,59 +417,59 @@ prefixOption args = prefixFromText . verify . T.pack <$> strOption args
         verify t = if T.null t then error "Prefix can't be empty" else t
 
 parser :: Parser Options
-parser = Options
-    <$> (optional $ strOption
-         (long "match-branches" <>
-          metavar "PATTERN" <>
-          help "Regex pattern to match 'onto' branch name in any proposal."))
-    <*> (optional $ strOption
-         (long "exclude-branches" <>
-          metavar "PATTERN" <>
-          help "Regex pattern to exclude 'onto' branch name in any proposal."))
-    <*> (optional $ strOption
-         (long "match-dry-run-branches" <>
-          metavar "PATTERN" <>
-          help "Regex pattern to match 'onto' branch name in dry run proposals."))
-    <*> (optional $ strOption
-         (long "match-non-dry-run-branches" <>
-          metavar "PATTERN" <>
-          help "Regex pattern to match 'onto' branch name in non-dry run proposals."))
-    <*> (option auto
+parser =
+    Options
+    <$> optional (strOption
+                  (long "match-branches" <>
+                   metavar "PATTERN" <>
+                   help "Regex pattern to match 'onto' branch name in any proposal."))
+    <*> optional (strOption
+                  (long "exclude-branches" <>
+                   metavar "PATTERN" <>
+                   help "Regex pattern to exclude 'onto' branch name in any proposal."))
+    <*> optional (strOption
+                  (long "match-dry-run-branches" <>
+                   metavar "PATTERN" <>
+                   help "Regex pattern to match 'onto' branch name in dry run proposals."))
+    <*> optional (strOption
+                  (long "match-non-dry-run-branches" <>
+                   metavar "PATTERN" <>
+                   help "Regex pattern to match 'onto' branch name in non-dry run proposals."))
+    <*> option auto
           (value defaultPort <>
            short 'p' <>
            long "port" <>
            metavar "PORT" <>
-           help ("Port for sling web server. Default: " <> (show defaultPort))))
-    <*> (fmap (fromMaybe defaultEmailClient . fmap (T.words . T.pack)) <$>
+           help ("Port for sling web server. Default: " <> show defaultPort))
+    <*> (fmap (maybe defaultEmailClient (T.words . T.pack)) <$>
          optional $ strOption
          (short 'e' <>
           long "email-client" <>
           metavar "COMMAND" <>
-          help ("Command to use sending emails. Default: " <> (T.unpack $ T.intercalate " " defaultEmailClient))))
+          help ("Command to use sending emails. Default: " <> T.unpack (T.intercalate " " defaultEmailClient))))
     <*> parseModeBranches
-    <*> (switch
-         (short 'n' <>
-          long "force-dry-run" <>
-          help ("Treat all proposals as dry run (regardless of what they say)")))
-    <*> (optional $ prefixOption
-         (long "source-prefix" <>
-          help ("Prefix of branches to be used for proposals")))
-    <*> (optional $ prefixOption
-         (long "target-prefix" <>
-          help ("If missing, successful branches are merged (unless dry-run) & deleted. If non-empty, prefix of branches to be used for succesful proposals (branches will not be merged).")))
-    <*> (some $ argument str
-         (metavar "-- COMMAND" <>
-          help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
+    <*> switch (short 'n' <>
+                long "force-dry-run" <>
+                help "Treat all proposals as dry run (regardless of what they say)")
+    <*> optional (prefixOption
+                  (long "source-prefix" <>
+                   help "Prefix of branches to be used for proposals"))
+    <*> optional (prefixOption
+                  (long "target-prefix" <>
+                   help "If missing, successful branches are merged (unless dry-run) & deleted. If non-empty, prefix of branches to be used for succesful proposals (branches will not be merged)."))
+    <*> some (argument str
+              (metavar "-- COMMAND" <>
+               help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
 
 
 shouldConsiderProposal :: Options -> Proposal -> Bool
 shouldConsiderProposal options proposal =
     (ProposalProposed == proposalStatus proposal)
     && (optSourcePrefix options == proposalPrefix proposal)
-    && (fromMaybe True $ checkFilter <$> optBranchFilterAll options)
-    && (fromMaybe True $ not . checkFilter <$> optBranchExcludeFilterAll options)
-    && (fromMaybe True $ ((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun options)
-    && (fromMaybe True $ (proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun options)
+    && fromMaybe True (checkFilter <$> optBranchFilterAll options)
+    && fromMaybe True (not . checkFilter <$> optBranchExcludeFilterAll options)
+    && fromMaybe True (((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun options)
+    && fromMaybe True ((proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun options)
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
 
 handleSpecificProposal :: IORef CurrentState -> Options -> Proposal -> EShell ()
@@ -477,10 +479,10 @@ handleSpecificProposal state options proposal = do
     let proposalBranchName = formatProposal proposal
         matchingBranches = filter (\b -> proposalBranchName == fromBranchName (snd b)) remoteBranches
     branch <- case matchingBranches of
-        [] -> abort $ "Failed to find branch: " <> (T.pack $ show proposalBranchName)
+        [] -> abort $ "Failed to find branch: " <> T.pack (show proposalBranchName)
         [b] -> return b
-        _ -> abort $ "Assertion failed: multiple branches matching the same proposal: " <> (T.pack $ show proposalBranchName)
-    attemptBranchOrAbort state options (uncurry Git.RemoteBranch $ branch) proposal
+        _ -> abort $ "Assertion failed: multiple branches matching the same proposal: " <> T.pack (show proposalBranchName)
+    attemptBranchOrAbort state options (uncurry Git.RemoteBranch branch) proposal
 
 serverPoll :: IORef CurrentState -> Options -> EShell Bool
 serverPoll currentState options = do
@@ -502,7 +504,9 @@ serverPoll currentState options = do
 
     let allProposals =
             List.sortOn (proposalQueueIndex . snd)
-            $ mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch)) (map (uncurry Git.RemoteBranch) remoteBranches)
+            $ mapMaybe ((\branch -> (branch,) <$> parseProposal (branchName branch))
+                        . uncurry Git.RemoteBranch)
+            remoteBranches
         proposals = filter (shouldConsiderProposal options . snd) allProposals
 
         showProposals ps = List.intercalate "\n\t" (map (show . branchName . fst) ps)
@@ -513,12 +517,12 @@ serverPoll currentState options = do
     liftIO $ modifyIORef currentState $ \state -> state { csPendingProposals = map snd proposals }
     case proposals of
         [] -> do
-            liftIO $ putStrLn $ "Done - have nothing to do."
+            liftIO $ putStrLn "Done - have nothing to do."
             return False
         (topProposal:_) -> do
             (uncurry $ attemptBranchOrAbort currentState options) topProposal
             liftIO $ clearCurrentProposal currentState
-            liftIO $ putStrLn $ "Done proposal: " ++ (show topProposal)
+            liftIO $ putStrLn $ "Done proposal: " ++ show topProposal
             return True
 
 serverLoop :: IORef CurrentState -> Maybe Int -> Options -> EShell ()
@@ -537,7 +541,7 @@ serverLoop currentState mInterval options = do
 
 main :: IO ()
 main = runEShell $ do
-    options <- liftIO $ parseOpts
+    options <- liftIO parseOpts
     currentState <- liftIO $ newIORef emptyCurrentState
     case optProposalMode options of
         ProposalFromBranch interval -> serverLoop currentState interval options
