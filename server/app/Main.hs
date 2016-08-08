@@ -230,6 +230,23 @@ setStateProposal currentState proposal commits = do
     putStrLn "Commits: "
     mapM_ print commits
 
+safeCreateBranch :: Git.BranchName -> EShell ()
+safeCreateBranch targetBranchName = do
+    Git.deleteLocalBranch targetBranchName & ignoreError
+    _ <- Git.createLocalBranch targetBranchName RefHead
+    _ <- Git.createRemoteTrackingBranch origin targetBranchName
+    return ()
+
+withNewBranch :: Git.BranchName -> EShell a -> EShell a
+withNewBranch b act = do
+    safeCreateBranch b
+    let cleanup = do
+            Git.deleteBranch (Git.LocalBranch b)
+            Git.deleteBranch (RemoteBranch origin b)
+    res <- act `catchError` (\e -> cleanup >> throwError e)
+    cleanup
+    return res
+
 attemptBranch :: IORef CurrentState -> Options -> FilePath -> Branch -> Proposal -> EShell ()
 attemptBranch currentState options logDir proposalBranch proposal = do
     Git.fetch
@@ -283,71 +300,77 @@ attemptBranch currentState options logDir proposalBranch proposal = do
     commitsAfter <- Git.log (proposalBranchBase proposal) (RefBranch proposalBranch)
     liftIO $ mapM_ print commitsAfter
 
-    -- go back to 'onto', decide whether to create a merge commit on
-    -- top (if we should merge ff only)
-    Git.checkout (LocalBranch ontoBranchName)
+    -- rebase succeeded, we can now take this job
 
-    isMerge <- Git.isMergeCommit (RefBranch niceBranch)
-    let mergeFF =
-            if isMerge || (length commits == 1)
-            then Git.MergeFFOnly
-            else Git.MergeNoFF
-    Git.merge mergeFF niceBranch
-    when (mergeFF == Git.MergeNoFF) $
-        Git.commitAmend (proposalEmail proposal) Git.RefHead
+    let inProgressProposalName = formatProposal $ proposal { proposalStatus = ProposalInProgress }
+        inProgressBranchName = mkBranchName inProgressProposalName
+    liftIO $ putStrLn $ "Creating in-progress proposal branch: " <> T.unpack inProgressProposalName
 
-    finalHead <- Git.currentRef
+    Git.checkout proposalBranch
 
-    -- Fast-forward the work branch to match the merged 'onto' we do
-    -- this so that the prepush script will see itself running on a
-    -- branch with the name the user gave to this proposal, and not
-    -- the onto branch's name.
-    Git.checkout niceBranch
-    Git.merge Git.MergeFFOnly (LocalBranch ontoBranchName)
+    withNewBranch inProgressBranchName $ do
+        liftIO $ putStrLn "Deleting proposal branch..."
+        Git.deleteBranch proposalBranch
 
-    -- DO IT!
-    logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
-    let prepushLogs = PrepushLogs logDir (FP.fromText logFileName)
-    liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just $ T.unpack logFileName }
-    runPrepush prepushLogs (optCommandAndArgs options) finalBase finalHead
-        `catchError` rejectProposal options proposal "Prepush command failed" (Just prepushLogs)
+        -- go back to 'onto', decide whether to create a merge commit on
+        -- top (if we should merge ff only)
+        Git.checkout (LocalBranch ontoBranchName)
 
-    liftIO $ putStrLn "Prepush command ran succesfully"
+        isMerge <- Git.isMergeCommit (RefBranch niceBranch)
+        let mergeFF =
+                if isMerge || (length commits == 1)
+                then Git.MergeFFOnly
+                else Git.MergeNoFF
+        Git.merge mergeFF niceBranch
+        when (mergeFF == Git.MergeNoFF) $
+            Git.commitAmend (proposalEmail proposal) Git.RefHead
 
-    case optTargetPrefix options of
-        Nothing -> do
-            Git.checkout (LocalBranch ontoBranchName)
-            when (niceBranchName /= ontoBranchName) $
-                Git.deleteLocalBranch niceBranchName & ignoreError
-            if isDryRun options proposal
-            then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs)
-            else do
-                -- TODO ensure not dirty
-                liftIO $ putStrLn . T.unpack $ "Updating: " <> fromBranchName ontoBranchName
-                Git.push -- TODO -u origin master
-                sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs)
-        Just targetPrefix -> do
-            let targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix }
-                targetBranchName = mkBranchName targetProposalName
-            liftIO $ putStrLn $ "Creating target proposal branch: " <> T.unpack targetProposalName
-            when (targetBranchName == ontoBranchName)
-                $ abort $ "Can't handle branch, onto == target: " <> targetProposalName
-            Git.deleteLocalBranch targetBranchName & ignoreError
-            _ <- Git.createLocalBranch targetBranchName RefHead
-            _ <- Git.createRemoteTrackingBranch origin targetBranchName
-            Git.checkout (LocalBranch ontoBranchName)
-            Git.deleteLocalBranch targetBranchName
-            sendProposalEmail options proposal ("Ran successfully, moved to: " <> prefixToText targetPrefix) "" (Just prepushLogs)
-            return ()
+        finalHead <- Git.currentRef
 
-    Git.checkout (LocalBranch ontoBranchName)
-    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
+        -- Fast-forward the work branch to match the merged 'onto' we do
+        -- this so that the prepush script will see itself running on a
+        -- branch with the name the user gave to this proposal, and not
+        -- the onto branch's name.
+        Git.checkout niceBranch
+        Git.merge Git.MergeFFOnly (LocalBranch ontoBranchName)
 
+        -- DO IT!
+        logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
+        let prepushLogs = PrepushLogs logDir (FP.fromText logFileName)
+        liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just $ T.unpack logFileName }
+        runPrepush prepushLogs (optCommandAndArgs options) finalBase finalHead
+            `catchError` rejectProposal options proposal "Prepush command failed" (Just prepushLogs)
 
-    liftIO $ putStrLn "Deleting proposal branch..."
-    Git.deleteBranch proposalBranch
+        liftIO $ putStrLn "Prepush command ran succesfully"
 
-    liftIO $ putStrLn . T.unpack $ "Finished handling proposal " <> formatProposal proposal
+        case optTargetPrefix options of
+            Nothing -> do
+                Git.checkout (LocalBranch ontoBranchName)
+                when (niceBranchName /= ontoBranchName) $
+                    Git.deleteLocalBranch niceBranchName & ignoreError
+                if isDryRun options proposal
+                then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs)
+                else do
+                    -- TODO ensure not dirty
+                    liftIO $ putStrLn . T.unpack $ "Updating: " <> fromBranchName ontoBranchName
+                    Git.push -- TODO -u origin master
+                    sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs)
+            Just targetPrefix -> do
+                let targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix }
+                    targetBranchName = mkBranchName targetProposalName
+                liftIO $ putStrLn $ "Creating target proposal branch: " <> T.unpack targetProposalName
+                when (targetBranchName == ontoBranchName)
+                    $ abort $ "Can't handle branch, onto == target: " <> targetProposalName
+                safeCreateBranch targetBranchName
+                Git.checkout (LocalBranch ontoBranchName)
+                Git.deleteLocalBranch targetBranchName
+                sendProposalEmail options proposal ("Ran successfully, moved to: " <> prefixToText targetPrefix) "" (Just prepushLogs)
+                return ()
+
+        Git.checkout (LocalBranch ontoBranchName)
+        Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
+
+        liftIO $ putStrLn . T.unpack $ "Finished handling proposal " <> formatProposal proposal
 
 usage :: String
 usage = List.intercalate "\n"
