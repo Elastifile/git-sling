@@ -13,7 +13,7 @@ cd_server
 logit checkout master
 logit reset --hard origin/master
 
-run_cmd $sling_server --target-prefix step-2  -- $prepush || fail "ERROR: Server should succeed!"
+run_cmd $sling_server --target-prefix step-2 poll -- $prepush || fail "ERROR: Server should succeed!"
 
 
 cd_client
@@ -28,7 +28,7 @@ git branch -a | grep 'step-2/.*/source_target_1' || fail "Expected branch to mov
 
 cd_server
 
-run_cmd $sling_server --source-prefix step-2 --target-prefix step-3  -- $prepush || fail "ERROR: Server should succeed!"
+run_cmd $sling_server --target-prefix step-3 poll --source-prefix step-2 -- $prepush || fail "ERROR: Server should succeed!"
 
 cd_client
 
@@ -44,7 +44,7 @@ git branch -a | grep 'step-3/.*/source_target_1' || fail "Expected branch to mov
 
 cd_server
 
-run_cmd $sling_server --source-prefix step-3  -- $prepush || fail "ERROR: Server should succeed!"
+run_cmd $sling_server poll --source-prefix step-3 -- $prepush || fail "ERROR: Server should succeed!"
 
 cd_client
 

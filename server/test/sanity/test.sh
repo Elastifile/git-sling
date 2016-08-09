@@ -43,7 +43,7 @@ echo "----------------------------------------------------------------------"
 echo "Testing server in: $serverdir/work"
 # Should fail, no tools/prepush script in repo
 echo "Expecting failure..."
-run_cmd_fail $sling_server $prepush || fail "ERROR: Server should fail!"
+run_cmd_fail $sling_server poll -- $prepush || fail "ERROR: Server should fail!"
 
 echo "----------------------------------------------------------------------"
 
@@ -58,7 +58,7 @@ echo "----------------------------------------------------------------------"
 echo "Running server, expecting success..."
 cd_server
 # Should succeed
-run_cmd $sling_server $prepush || fail "Server should succeed!"
+run_cmd $sling_server poll -- $prepush || fail "Server should succeed!"
 
 echo "----------------------------------------------------------------------"
 

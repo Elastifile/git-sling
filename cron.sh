@@ -16,6 +16,6 @@ source $SCRIPT_DIR/sling-config.sh
 
     test -d $SERVER_WORKDIR/$GIT_CLONE_DIR_NAME || (cd $SERVER_WORKDIR && git clone $GIT_REPO $GIT_CLONE_DIR_NAME && git submodule update --init)
     cd $SERVER_WORKDIR/$GIT_CLONE_DIR_NAME
-    bash -c "$SLING_SERVER $SERVER_OPTIONS -- $PREPUSH_COMMAND"
+    bash -c "$SLING_SERVER poll $SERVER_OPTIONS -- $PREPUSH_COMMAND"
 
 ) 9>$SERVER_LOCKFILE

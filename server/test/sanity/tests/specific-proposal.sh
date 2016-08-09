@@ -33,7 +33,7 @@ specific_proposal_branch_name=$(git branch -r | grep "$source_prefix/proposed/.*
 cd_server
 
 echo "Expecting success..."
-run_cmd $sling_server --force-dry-run --source-prefix $source_prefix --proposal-branch $specific_proposal_branch_name -- $prepush || fail "Error: Server should succeed!"
+run_cmd $sling_server --force-dry-run proposal $specific_proposal_branch_name -- $prepush || fail "Error: Server should succeed!"
 
 cd_client
 
@@ -54,7 +54,7 @@ yes | run_cmd $sling_propose --source=$source_prefix master
 cd_server
 
 echo "Expecting success..."
-run_cmd $sling_server --source-prefix $source_prefix --proposal-branch $specific_proposal_branch_name -- $prepush || fail "Error: Server should succeed!"
+run_cmd $sling_server proposal $specific_proposal_branch_name -- $prepush || fail "Error: Server should succeed!"
 
 cd_client
 

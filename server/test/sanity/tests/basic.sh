@@ -23,4 +23,4 @@ add_commit_file unrebasable "server side"
 logit push
 
 echo "Expecting failure..."
-run_cmd_fail $sling_server $prepush || fail "ERROR: Server should fail (bad rebase)!"
+run_cmd_fail $sling_server poll -- $prepush || fail "ERROR: Server should fail (bad rebase)!"

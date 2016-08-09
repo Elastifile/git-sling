@@ -15,13 +15,13 @@ run_cmd $sling_propose master --dry-run
 cd_server
 
 echo "Expecting success..."
-run_cmd      "$sling_server --match-branches             shooki        -- exit 1" || fail "ERROR: Server should succeed!"
-run_cmd      "$sling_server --match-dry-run-branches     shooki        -- exit 1" || fail "ERROR: Server should succeed!"
-run_cmd      "$sling_server --match-dry-run-branches     '^$'          -- exit 1" || fail "ERROR: Server should succeed!"
-run_cmd_fail "$sling_server --match-dry-run-branches     dry_run_test  -- exit 1" || fail "ERROR: Server should fail!"
+run_cmd      "$sling_server poll --match-branches             shooki        -- exit 1" || fail "ERROR: Server should succeed!"
+run_cmd      "$sling_server poll --match-dry-run-branches     shooki        -- exit 1" || fail "ERROR: Server should succeed!"
+run_cmd      "$sling_server poll --match-dry-run-branches     '^$'          -- exit 1" || fail "ERROR: Server should succeed!"
+run_cmd_fail "$sling_server poll --match-dry-run-branches     dry_run_test  -- exit 1" || fail "ERROR: Server should fail!"
 # already happened, should succeed:
-run_cmd      "$sling_server --match-dry-run-branches     dry_run_test  -- exit 1" || fail "ERROR: Server should succeed!"
-run_cmd_fail "$sling_server --match-branches             master        -- exit 1" || fail "ERROR: Server should fail!"
+run_cmd      "$sling_server poll --match-dry-run-branches     dry_run_test  -- exit 1" || fail "ERROR: Server should succeed!"
+run_cmd_fail "$sling_server poll --match-branches             master        -- exit 1" || fail "ERROR: Server should fail!"
 
 cd_client
 

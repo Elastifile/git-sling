@@ -387,7 +387,8 @@ attemptBranch currentState options logDir proposalBranch proposal = do
 
             -- If this fails, reject branch will be created first; then the cleanup of in-progress
             -- branch will delete that one, so we're safe against losing the proposal
-            runPrepush prepushLogs (optCommandAndArgs options) finalBase finalHead
+            let prepushCmd = cmdPrepushCommandAnArgs (optProposalMode options)
+            runPrepush prepushLogs prepushCmd finalBase finalHead
                 `catchError` rejectProposal options proposal "Prepush command failed" (Just prepushLogs)
 
             liftIO $ putStrLn "Prepush command ran succesfully"
@@ -406,24 +407,32 @@ usage = List.intercalate "\n"
     , "where COMMAND is the prepush command to run on each attempted branch."
     ]
 
-data ProposalMode
-    = ProposalFromBranch (Maybe Int)
-    | ProposalFromCommandLine Proposal
-
-data Options =
-    Options
+data PollOptions =
+    PollOptions
     { optBranchFilterAll :: Maybe String
     , optBranchExcludeFilterAll :: Maybe String
     , optBranchFilterDryRun :: Maybe String
     , optBranchFilterNoDryRun :: Maybe String
-    , optWebServerPort :: Int
-    , optEmailClient :: [Text]
-    , optProposalMode :: ProposalMode
-    , optForceDryRun :: Bool
     , optSourcePrefix :: Maybe Prefix
-    , optTargetPrefix :: Maybe Prefix
-    , optCommandAndArgs :: [String]
+    , optPollDelay :: Maybe Int -- Nothing means exit after processing all existing
     }
+
+data Options =
+    Options
+    { optWebServerPort :: Int
+    , optEmailClient :: [Text]
+    , optForceDryRun :: Bool
+    , optTargetPrefix :: Maybe Prefix
+    , optProposalMode :: Command
+    }
+
+data Command
+    = Command { cmdMode :: PrepushMode
+              , cmdPrepushCommandAnArgs :: [String] }
+
+data PrepushMode
+    = ProposalModePoll PollOptions
+    | ProposalModeSingle Proposal
 
 parseOpts :: IO Options
 parseOpts = execParser $
@@ -444,82 +453,107 @@ parseProposalFromCmdLine s =
     parseProposal (T.pack s)
     `catchMaybe` error ("Invalid proposal format: " ++ show s)
 
-parseModeBranches :: Parser ProposalMode
+prepushCommandArgs :: Parser [String]
+prepushCommandArgs =
+    some (argument str
+              (metavar "-- PREPUSH COMMAND LINE..." <>
+               help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
+
+parseModeBranches :: Parser Command
 parseModeBranches =
-    flag' (ProposalFromBranch Nothing)
-     (short 's' <>
-      long "single" <>
-      help "Process proposals from current (no polling) branches: Fetch current branches and process all existing proposals, then exit")
-    <|> (ProposalFromBranch <$>
-            optional (option auto
-                (short 'd' <>
-                 metavar "T" <>
-                 long "daemon" <>
-                 help "Poll proposals from branches, checking git status every T seconds")))
-    <|> (ProposalFromCommandLine . parseProposalFromCmdLine <$>
-         strOption (long "proposal-branch" <>
-                    short 'b' <>
-                    help "A proposal branch name to handle"))
+    hsubparser
+    ( command "proposal" (info
+                          (Command <$>
+                           (ProposalModeSingle .parseProposalFromCmdLine <$>
+                               argument str (metavar "PROPOSAL" <>
+                                             help "A proposal branch name to handle"))
+                           <*> prepushCommandArgs)
+                          (fullDesc <> progDesc "Process a single proposal"))
+      <> command "poll" (info (Command
+                                  <$> (ProposalModePoll <$> pollOptionsParser)
+                                  <*> prepushCommandArgs)
+                         (fullDesc <> progDesc "Process proposals queued as branches"))
+    )
+    -- flag' (ProposalFromBranch Nothing)
+    --  (short 's' <>
+    --   long "single" <>
+    --   help "Process proposals from current (no polling) branches: Fetch current branches and process all existing proposals, then exit")
+    -- <|> (ProposalFromBranch <$>
+    --         optional (option auto
+    --             (short 'd' <>
+    --              metavar "T" <>
+    --              long "daemon" <>
+    --              help )))
+    -- <|> (ProposalFromCommandLine . parseProposalFromCmdLine <$>
+    --      strOption (long "proposal-branch" <>
+    --                 short 'b' <>
+    --                 help "A proposal branch name to handle"))
 
 prefixOption :: Mod OptionFields String -> Parser Prefix
 prefixOption args = prefixFromText . verify . T.pack <$> strOption args
     where
         verify t = if T.null t then error "Prefix can't be empty" else t
 
-parser :: Parser Options
-parser =
-    Options
+pollOptionsParser :: Parser PollOptions
+pollOptionsParser =
+    PollOptions
     <$> optional (strOption
                   (long "match-branches" <>
                    metavar "PATTERN" <>
-                   help "Regex pattern to match 'onto' branch name in any proposal."))
+                   help "Regex pattern to match 'onto' branch name in any proposal"))
     <*> optional (strOption
                   (long "exclude-branches" <>
                    metavar "PATTERN" <>
-                   help "Regex pattern to exclude 'onto' branch name in any proposal."))
+                   help "Regex pattern to exclude 'onto' branch name in any proposal"))
     <*> optional (strOption
                   (long "match-dry-run-branches" <>
                    metavar "PATTERN" <>
-                   help "Regex pattern to match 'onto' branch name in dry run proposals."))
+                   help "Regex pattern to match 'onto' branch name in dry run proposals"))
     <*> optional (strOption
                   (long "match-non-dry-run-branches" <>
                    metavar "PATTERN" <>
-                   help "Regex pattern to match 'onto' branch name in non-dry run proposals."))
-    <*> option auto
+                   help "Regex pattern to match 'onto' branch name in non-dry run proposals"))
+    <*> optional (prefixOption
+                  (long "source-prefix" <>
+                   help "Exact prefix of branches to be used for proposals (other proposals will be ignored)"))
+    <*> optional (option auto (short 'd' <>
+                               metavar "T" <>
+                               long "daemonize" <>
+                               help "'Daemonize' - run endlessly, polling proposals from branches every T seconds"))
+
+
+parser :: Parser Options
+parser =
+    Options
+    <$> (option auto
           (value defaultPort <>
            short 'p' <>
            long "port" <>
            metavar "PORT" <>
-           help ("Port for sling web server. Default: " <> show defaultPort))
+           help ("Port for sling web server. Default: " <> show defaultPort)))
     <*> (fmap (maybe defaultEmailClient (T.words . T.pack)) <$>
          optional $ strOption
          (short 'e' <>
           long "email-client" <>
-          metavar "COMMAND" <>
+          metavar "EMAIL_CLIENT_COMMAND" <>
           help ("Command to use sending emails. Default: " <> T.unpack (T.intercalate " " defaultEmailClient))))
-    <*> parseModeBranches
     <*> switch (short 'n' <>
                 long "force-dry-run" <>
                 help "Treat all proposals as dry run (regardless of what they say)")
     <*> optional (prefixOption
-                  (long "source-prefix" <>
-                   help "Prefix of branches to be used for proposals"))
-    <*> optional (prefixOption
                   (long "target-prefix" <>
-                   help "If missing, successful branches are merged (unless dry-run) & deleted. If non-empty, prefix of branches to be used for succesful proposals (branches will not be merged)."))
-    <*> some (argument str
-              (metavar "-- COMMAND" <>
-               help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
+                   help "If missing, successful branches are merged (unless dry-run) & deleted. If non-empty, prefix of branches to be used for succesful proposals (branches will not be merged)"))
+    <*> parseModeBranches
 
 
-shouldConsiderProposal :: Options -> Proposal -> Bool
-shouldConsiderProposal options proposal =
+shouldConsiderProposal :: PollOptions -> Proposal -> Bool
+shouldConsiderProposal pollOptions proposal =
     (ProposalProposed == proposalStatus proposal)
-    && (optSourcePrefix options == proposalPrefix proposal)
-    && fromMaybe True (checkFilter <$> optBranchFilterAll options)
-    && fromMaybe True (not . checkFilter <$> optBranchExcludeFilterAll options)
-    && fromMaybe True (((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun options)
-    && fromMaybe True ((proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun options)
+    && (optSourcePrefix pollOptions == proposalPrefix proposal)
+    && fromMaybe True (checkFilter <$> optBranchFilterAll pollOptions)
+    && fromMaybe True (not . checkFilter <$> optBranchExcludeFilterAll pollOptions)
+    && fromMaybe True (((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun pollOptions)
+    && fromMaybe True ((proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun pollOptions)
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
 
 handleSpecificProposal :: IORef CurrentState -> Options -> Proposal -> EShell ()
@@ -534,21 +568,21 @@ handleSpecificProposal state options proposal = do
         _ -> abort $ "Assertion failed: multiple branches matching the same proposal: " <> T.pack (show proposalBranchName)
     attemptBranchOrAbort state options (uncurry Git.RemoteBranch branch) proposal
 
-serverPoll :: IORef CurrentState -> Options -> EShell Bool
-serverPoll currentState options = do
+serverPoll :: IORef CurrentState -> Options -> PollOptions -> EShell Bool
+serverPoll currentState options pollOptions = do
     Git.fetch
     remoteBranches <- Git.remoteBranches
 
     liftIO $ putStrLn $ mconcat $ List.intersperse "\n\t"
         [ "Filters: "
-        , maybe "" ("match filter: " <> ) (optBranchFilterAll options)
-        , maybe "" ("exclude filter: " <> ) (optBranchExcludeFilterAll options)
-        , maybe "" ("dry run branch filter: " <> ) (optBranchFilterDryRun options)
-        , maybe "" ("non-dry-run branch filter: " <> ) (optBranchFilterNoDryRun options)
+        , maybe "" ("match filter: " <> ) (optBranchFilterAll pollOptions)
+        , maybe "" ("exclude filter: " <> ) (optBranchExcludeFilterAll pollOptions)
+        , maybe "" ("dry run branch filter: " <> ) (optBranchFilterDryRun pollOptions)
+        , maybe "" ("non-dry-run branch filter: " <> ) (optBranchFilterNoDryRun pollOptions)
         ]
     liftIO $ putStrLn $ mconcat $ List.intersperse "\n\t"
         [ "Prefixes: "
-        , "Source: " <> maybe "" (T.unpack . prefixToText) (optSourcePrefix options)
+        , "Source: " <> maybe "" (T.unpack . prefixToText) (optSourcePrefix pollOptions)
         , "Target: " <> maybe "" (T.unpack . prefixToText) (optTargetPrefix options)
         ]
 
@@ -557,7 +591,7 @@ serverPoll currentState options = do
             $ mapMaybe ((\branch -> (branch,) <$> parseProposal (branchName branch))
                         . uncurry Git.RemoteBranch)
             remoteBranches
-        proposals = filter (shouldConsiderProposal options . snd) allProposals
+        proposals = filter (shouldConsiderProposal pollOptions . snd) allProposals
 
         showProposals ps = List.intercalate "\n\t" (map (show . branchName . fst) ps)
 
@@ -575,14 +609,14 @@ serverPoll currentState options = do
             liftIO $ putStrLn $ "Done proposal: " ++ show topProposal
             return True
 
-serverLoop :: IORef CurrentState -> Maybe Int -> Options -> EShell ()
-serverLoop currentState mInterval options = do
+serverLoop :: IORef CurrentState -> Options -> PollOptions -> EShell ()
+serverLoop currentState options pollOptions = do
     void $ liftIO $ forkServer (optWebServerPort options) (readIORef currentState)
     let go = do
-            havePending <- serverPoll currentState options
+            havePending <- serverPoll currentState options pollOptions
             if havePending
                 then go
-                else case mInterval of
+                else case (optPollDelay pollOptions) of
                     Nothing -> return ()
                     Just interval -> do
                         liftIO $ threadDelay $ interval*1000000
@@ -593,6 +627,6 @@ main :: IO ()
 main = runEShell $ do
     options <- liftIO parseOpts
     currentState <- liftIO $ newIORef emptyCurrentState
-    case optProposalMode options of
-        ProposalFromBranch interval -> serverLoop currentState interval options
-        ProposalFromCommandLine proposal -> handleSpecificProposal currentState options proposal
+    case cmdMode (optProposalMode options) of
+        ProposalModePoll pollOptions -> serverLoop currentState options pollOptions
+        ProposalModeSingle proposal -> handleSpecificProposal currentState options proposal

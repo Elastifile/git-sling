@@ -18,7 +18,7 @@ done
 cd_server
 
 echo "Expecting success..."
-run_cmd $sling_server $prepush || fail "ERROR: Server should succeed!"
+run_cmd $sling_server poll -- $prepush || fail "ERROR: Server should succeed!"
 
 cd_client
 logit fetch -p

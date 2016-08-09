@@ -14,7 +14,7 @@ yes | run_cmd $sling_propose branch_not_matching
 cd_server
 
 echo "Expecting success..."
-run_cmd $sling_server $prepush --match-branches 'master' || fail "ERROR: Server should succeed!"
+run_cmd $sling_server poll --match-branches 'master' -- $prepush || fail "ERROR: Server should succeed!"
 
 cd_client
 
@@ -26,7 +26,7 @@ git log --format="%H %s" origin/master              | grep "test_not_matching" &
 cd_server
 
 echo "Expecting success..."
-run_cmd $sling_server $prepush --exclude-branches 'branch_not' || fail "ERROR: Server should succeed!"
+run_cmd $sling_server poll --exclude-branches 'branch_not' -- $prepush || fail "ERROR: Server should succeed!"
 
 cd_client
 
@@ -38,7 +38,7 @@ git log --format="%H %s" origin/master              | grep "test_not_matching" &
 cd_server
 
 echo "Expecting success..."
-run_cmd $sling_server $prepush --match-non-dry-run-branches '.*not_matching.*' || fail "ERROR: Server should succeed!"
+run_cmd $sling_server poll --match-non-dry-run-branches '.*not_matching.*' -- $prepush || fail "ERROR: Server should succeed!"
 
 cd_client
 
