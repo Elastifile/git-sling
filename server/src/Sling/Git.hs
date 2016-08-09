@@ -11,7 +11,8 @@ import           Data.Text              (Text)
 import qualified Data.Text              as T
 import           Sling.Lib
 import           Turtle                 (Pattern, anyChar, char, eof, hexDigit,
-                                         selfless, some, space, spaces, text, notChar)
+                                         notChar, selfless, some, space, spaces,
+                                         text)
 
 git :: [Text] -> EShell [Text]
 git args = do
@@ -192,8 +193,8 @@ createRemoteTrackingBranch r name = do
 data RebaseMergePolicy = RebaseKeepMerges | RebaseDropMerges
 
 data Rebase =
-    Rebase { rebaseBase :: Ref
-           , rebaseOnto :: Ref
+    Rebase { rebaseBase   :: Ref
+           , rebaseOnto   :: Ref
            , rebasePolicy :: RebaseMergePolicy
            }
 
@@ -220,10 +221,10 @@ isMergeCommit ref = do
 hashPat :: Pattern Hash
 hashPat = hash . T.pack <$> some hexDigit
 
-data LogEntry = LogEntry { logEntryFullHash :: Hash
+data LogEntry = LogEntry { logEntryFullHash  :: Hash
                          , logEntryShortHash :: Hash
-                         , logEntryAuthor :: Text
-                         , logEntryTitle :: Text }
+                         , logEntryAuthor    :: Text
+                         , logEntryTitle     :: Text }
     deriving (Show, Eq, Ord)
 
 logPat :: Pattern LogEntry
