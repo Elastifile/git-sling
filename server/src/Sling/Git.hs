@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Sling.Git where
 
-import           Control.Applicative    ((<|>))
+import           Control.Applicative    (optional, (<|>))
 import           Control.Monad          (join, when)
+
 import           Control.Monad.IO.Class (liftIO)
 import           Data.Maybe             (mapMaybe)
 import           Data.Monoid            ((<>))
@@ -165,6 +166,12 @@ remoteBranches :: EShell [(Remote, BranchName)]
 remoteBranches =
     (mapMaybe (singleMatch remoteBranchPat))
     <$> git ["branch", "--list", "-r", "--no-color"]
+
+localBranchPat :: Pattern BranchName
+localBranchPat = mkBranchName . T.pack <$> (spaces *> optional (char '*') *> spaces *> some notSpace) <* eof
+
+localBranches :: EShell [BranchName]
+localBranches = git ["branch", "--list", "--no-color"] >>= mapM (mustMatch localBranchPat)
 
 deleteLocalBranch :: BranchName -> EShell ()
 deleteLocalBranch name = git ["branch", "-D", fromBranchName name] >> pure ()
