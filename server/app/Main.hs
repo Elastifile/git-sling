@@ -21,13 +21,13 @@ import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..), branchName,
                                                 fromBranchName, mkBranchName)
 import qualified Sling.Git as Git
-import           Sling.Lib                     (EShell, Email (..), abort,
-                                                eprocsIn, eprocsL, formatEmail,
+import           Sling.Lib                     (EShell, Email (..), abort, eview, eproc,
+                                                eprocsIn, eprocsL, formatEmail, eprint,
                                                 ignoreError, runEShell, fromHash)
 import           Sling.Proposal
 import           Sling.Web (forkServer, CurrentState(..), emptyCurrentState)
 import           Text.Regex.Posix ((=~))
-import           Turtle (ExitCode, (&))
+import           Turtle (ExitCode, (&), echo)
 
 import qualified Data.List as List
 
@@ -66,10 +66,13 @@ runPrepush :: PrepushLogs -> [String] -> Ref -> Ref -> EShell ()
 runPrepush (PrepushLogs logDir logFile) cmd baseR headR = do
     let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
         env_str = "SLING_LOG_DIR=" <> encodeFP logDir
-        redirect :: Int -> Text
-        redirect fd = "exec " <> T.pack (show fd) <> ">> " <> encodeFP logFile <> ";"
-    liftIO $ putStrLn . T.unpack $ "Executing bash with: " <> args <> " output goes to: " <> encodeFP logFile
-    _output <- eprocsL "bash" ["-o", "pipefail", "-c", redirect 1 <> redirect 2 <> env_str <> " " <> args]
+        bashArgs = [ "-o", "pipefail", "-c"
+                   , "exec 2>&1; " <> env_str <> " " <> args
+                     <> " | tee " <> encodeFP logFile]
+    eprint $ "Executing bash with: '" <> mconcat bashArgs <> "' output goes to: " <> encodeFP logFile
+    eprint "----------------------------------------------------------------------"
+    eproc "bash" bashArgs (return "")
+    eprint "----------------------------------------------------------------------"
     -- TODO delete log if successful?
     return ()
 
@@ -95,11 +98,11 @@ addAttachment fn attachedFN = do
             BS8.hGetContents handle
     case res of
         Left err -> do
-            putStrLn $ "Failed reading from file: " <> show fn <> ", error: " <> show err
+            echo . T.pack $ "Failed reading from file: " <> show fn <> ", error: " <> show err
             return Nothing
         Right contents
             | BS8.length contents == 0 -> do
-                  putStrLn $ "Empty data in file: " <> show fn
+                  echo . T.pack $ "Empty data in file: " <> show fn
                   return Nothing
             | otherwise ->
                   return $ Just
@@ -139,7 +142,7 @@ sendProposalEmail options proposal subject body prepushLogs = do
 
     renderdBS <- liftIO $ Mail.renderMail' mail
 
-    liftIO $ putStrLn . T.unpack $ "Sending email (async) to: " <> formatEmail (proposalEmail proposal) <> " with subject: " <> subject
+    eprint $ "Sending email (async) to: " <> formatEmail (proposalEmail proposal) <> " with subject: " <> subject
     liftIO $ void $ forkIO $ runEShell $ eprocsIn (head $ optEmailClient options) (tail (optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ LE.decodeUtf8 renderdBS)
     return ()
 
@@ -159,7 +162,7 @@ cleanupGit proposal = do
 
 abortAttempt :: IORef CurrentState -> Options -> Proposal -> (Text, ExitCode) -> EShell ()
 abortAttempt currentState options proposal (msg, _err) = do
-    liftIO $ putStrLn $ "ABORTING: " ++ show msg
+    eprint . T.pack $ "ABORTING: " ++ show msg
     sendProposalEmail options proposal "Aborting" (H.html $ H.text msg) Nothing
     cleanupGit proposal
     liftIO $ clearCurrentProposal currentState
@@ -175,7 +178,7 @@ rejectProposal options proposal reason prepushLogs (msg, err) = do
         rejectBranchName = formatProposal rejectedProposal
         origBranchName = formatProposal proposal
         msgBody = "REJECT " <> origBranchName <> " because: '" <> reason <> "' (" <> msg <> "), exit code = " <> T.pack (show err)
-    liftIO $ putStrLn . T.unpack $ msgBody
+    eprint $ msgBody
     sendProposalEmail options proposal ("Rejecting (" <> msg <> ")") (toHtml msgBody) prepushLogs
     Git.fetch & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
@@ -226,8 +229,8 @@ setStateProposal currentState proposal commits = do
         state
         { csCurrentProposal = Just (proposal, time)
         }
-    putStrLn . T.unpack $ "Attempting proposal: " <> formatProposal proposal
-    putStrLn "Commits: "
+    echo $ "Attempting proposal: " <> formatProposal proposal
+    echo "Commits: "
     mapM_ print commits
 
 safeCreateBranch :: Git.BranchName -> EShell ()
@@ -264,7 +267,7 @@ transitionProposalToTarget :: Options -> Proposal -> Prefix -> PrepushLogs -> ES
 transitionProposalToTarget options proposal targetPrefix prepushLogs = do
     let targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix }
         targetBranchName = mkBranchName targetProposalName
-    liftIO $ putStrLn $ "Creating target proposal branch: " <> T.unpack targetProposalName
+    eprint . T.pack $ "Creating target proposal branch: " <> T.unpack targetProposalName
     when (targetBranchName == ontoBranchName)
         $ abort $ "Can't handle branch, onto == target: " <> targetProposalName
     safeCreateBranch targetBranchName
@@ -282,7 +285,7 @@ transitionProposalToCompletion options proposal prepushLogs = do
     then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs)
     else do
         -- TODO ensure not dirty
-        liftIO $ putStrLn . T.unpack $ "Updating: " <> fromBranchName ontoBranchName
+        eprint $ "Updating: " <> fromBranchName ontoBranchName
         Git.push -- TODO -u origin master
         sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs)
     where
@@ -342,7 +345,7 @@ attemptBranch currentState options logDir proposalBranch proposal = do
                               }
             `catchError` rejectProposal options proposal "Rebase failed" Nothing
 
-        liftIO $ putStrLn "Commits (after rebase): "
+        eprint "Commits (after rebase): "
         commitsAfter <- Git.log (proposalBranchBase proposal) (RefBranch proposalBranch)
         liftIO $ mapM_ print commitsAfter
 
@@ -350,12 +353,12 @@ attemptBranch currentState options logDir proposalBranch proposal = do
 
         let inProgressProposalName = formatProposal $ proposal { proposalStatus = ProposalInProgress }
             inProgressBranchName = mkBranchName inProgressProposalName
-        liftIO $ putStrLn $ "Creating in-progress proposal branch: " <> T.unpack inProgressProposalName
+        eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack inProgressProposalName
 
         Git.checkout proposalBranch
 
         withNewBranch inProgressBranchName $ do
-            liftIO $ putStrLn "Deleting proposal branch..."
+            eprint "Deleting proposal branch..."
             Git.deleteBranch proposalBranch
 
             -- go back to 'onto', decide whether to create a merge commit on
@@ -391,14 +394,14 @@ attemptBranch currentState options logDir proposalBranch proposal = do
             runPrepush prepushLogs prepushCmd finalBase finalHead
                 `catchError` rejectProposal options proposal "Prepush command failed" (Just prepushLogs)
 
-            liftIO $ putStrLn "Prepush command ran succesfully"
+            eprint "Prepush command ran succesfully"
 
             transitionProposal options proposal prepushLogs
 
             Git.checkout (LocalBranch ontoBranchName)
             Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
 
-            liftIO $ putStrLn . T.unpack $ "Finished handling proposal " <> formatProposal proposal
+            eprint $ "Finished handling proposal " <> formatProposal proposal
 
 usage :: String
 usage = List.intercalate "\n"
@@ -573,14 +576,14 @@ serverPoll currentState options pollOptions = do
     Git.fetch
     remoteBranches <- Git.remoteBranches
 
-    liftIO $ putStrLn $ mconcat $ List.intersperse "\n\t"
+    eprint . T.pack $ mconcat $ List.intersperse "\n\t"
         [ "Filters: "
         , maybe "" ("match filter: " <> ) (optBranchFilterAll pollOptions)
         , maybe "" ("exclude filter: " <> ) (optBranchExcludeFilterAll pollOptions)
         , maybe "" ("dry run branch filter: " <> ) (optBranchFilterDryRun pollOptions)
         , maybe "" ("non-dry-run branch filter: " <> ) (optBranchFilterNoDryRun pollOptions)
         ]
-    liftIO $ putStrLn $ mconcat $ List.intersperse "\n\t"
+    eprint . T.pack $ mconcat $ List.intersperse "\n\t"
         [ "Prefixes: "
         , "Source: " <> maybe "" (T.unpack . prefixToText) (optSourcePrefix pollOptions)
         , "Target: " <> maybe "" (T.unpack . prefixToText) (optTargetPrefix options)
@@ -595,18 +598,18 @@ serverPoll currentState options pollOptions = do
 
         showProposals ps = List.intercalate "\n\t" (map (show . branchName . fst) ps)
 
-    liftIO $ putStrLn $ "All proposals (before filtering):\n\t" <> showProposals allProposals
-    liftIO $ putStrLn $ "Going to attempt proposals:\n\t" <> showProposals proposals
+    eprint . T.pack $ "All proposals (before filtering):\n\t" <> showProposals allProposals
+    eprint . T.pack $ "Going to attempt proposals:\n\t" <> showProposals proposals
 
     liftIO $ modifyIORef currentState $ \state -> state { csPendingProposals = map snd proposals }
     case proposals of
         [] -> do
-            liftIO $ putStrLn "Done - have nothing to do."
+            eprint "Done - have nothing to do."
             return False
         (topProposal:_) -> do
             (uncurry $ attemptBranchOrAbort currentState options) topProposal
             liftIO $ clearCurrentProposal currentState
-            liftIO $ putStrLn $ "Done proposal: " ++ show topProposal
+            eprint . T.pack $ "Done proposal: " ++ show topProposal
             return True
 
 serverLoop :: IORef CurrentState -> Options -> PollOptions -> EShell ()
@@ -624,7 +627,7 @@ serverLoop currentState options pollOptions = do
     go
 
 main :: IO ()
-main = runEShell $ do
+main = runEShell $ eview $ do
     options <- liftIO parseOpts
     currentState <- liftIO $ newIORef emptyCurrentState
     case cmdMode (optProposalMode options) of

@@ -4,7 +4,6 @@ module Sling.Git where
 import           Control.Applicative    (optional, (<|>))
 import           Control.Monad          (join, when)
 
-import           Control.Monad.IO.Class (liftIO)
 import           Data.Maybe             (mapMaybe)
 import           Data.Monoid            ((<>))
 import           Data.String            (IsString (..))
@@ -16,9 +15,7 @@ import           Turtle                 (Pattern, anyChar, char, eof, hexDigit,
                                          text)
 
 git :: [Text] -> EShell [Text]
-git args = do
-    liftIO $ putStrLn . T.unpack $ "git " <> T.intercalate " " args
-    eprocsL "git" args
+git args = eprocsL "git" args
 
 data FileStatus = Unmodified | Modified | Added | Deleted | Renamed | Copied | Unmerged
     deriving (Show, Eq, Ord)
