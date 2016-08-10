@@ -410,6 +410,8 @@ usage = List.intercalate "\n"
     , "where COMMAND is the prepush command to run on each attempted branch."
     ]
 
+data PollMode = PollModeDaemon Int | PollModeOneShot | PollModeAllQueued
+
 data PollOptions =
     PollOptions
     { optBranchFilterAll :: Maybe String
@@ -417,7 +419,7 @@ data PollOptions =
     , optBranchFilterDryRun :: Maybe String
     , optBranchFilterNoDryRun :: Maybe String
     , optSourcePrefix :: Maybe Prefix
-    , optPollDelay :: Maybe Int -- Nothing means exit after processing all existing
+    , optPollMode :: PollMode
     }
 
 data Options =
@@ -519,10 +521,18 @@ pollOptionsParser =
     <*> optional (prefixOption
                   (long "source-prefix" <>
                    help "Exact prefix of branches to be used for proposals (other proposals will be ignored)"))
-    <*> optional (option auto (short 'd' <>
-                               metavar "T" <>
-                               long "daemonize" <>
-                               help "'Daemonize' - run endlessly, polling proposals from branches every T seconds"))
+    <*> (PollModeDaemon <$> (option auto $
+                             short 'd' <>
+                             metavar "T" <>
+                             long "daemonize" <>
+                             help "'Daemonize' - run endlessly, polling proposals from branches every T seconds")
+         <|> (flag' PollModeOneShot
+              (long "one-shot" <>
+               help "Process one proposal and then quit; if nothing to process, quit immediately"))
+         <|> (flag PollModeAllQueued PollModeAllQueued
+              (long "all" <>
+               help "(Default) Process all pending proposals and then quit; if nothing to process, quit immediately"))
+        )
 
 
 parser :: Parser Options
@@ -617,13 +627,12 @@ serverLoop currentState options pollOptions = do
     void $ liftIO $ forkServer (optWebServerPort options) (readIORef currentState)
     let go = do
             havePending <- serverPoll currentState options pollOptions
-            if havePending
-                then go
-                else case (optPollDelay pollOptions) of
-                    Nothing -> return ()
-                    Just interval -> do
-                        liftIO $ threadDelay $ interval*1000000
-                        go
+            case (optPollMode pollOptions) of
+                PollModeOneShot -> return ()
+                PollModeAllQueued -> if havePending then go else return ()
+                PollModeDaemon interval -> do
+                    liftIO $ threadDelay $ interval*1000000
+                    go
     go
 
 main :: IO ()
