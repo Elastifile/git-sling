@@ -27,12 +27,12 @@ cd_client() {
 }
 
 run_cmd_fail() {
-    cmd="$@"
-    logfile=$(mktemp)
+    local cmd="$@"
+    local logfile=$(mktemp)
     echo "> $cmd"
     set +e
     $cmd &> $logfile
-    result="$?"
+    local result="$?"
     set -e
     if [ $result -eq "0" ]; then
         echo "^ Command succeeded (but expecting failure) $?, log=$logfile"
@@ -42,8 +42,8 @@ run_cmd_fail() {
 }
 
 run_cmd() {
-    cmd="$@"
-    logfile=$(mktemp)
+    local cmd="$@"
+    local logfile=$(mktemp)
     echo "> $cmd"
     $cmd &> $logfile && rm $logfile || (echo "^ Command failed $?, log=$logfile"; exit 1)
 }
@@ -55,14 +55,15 @@ logit() {
 delete_rejected_branches() {
     logit fetch -p
     git branch -r | grep -E "sling/rejected/[0-9]+/$testbranch" || fail "Expecting rejected branch!"
-    rejected_branch=$(git branch -r | grep -E "sling/rejected/[0-9]+/$testbranch")
+    local rejected_branch=$(git branch -r | grep -E "sling/rejected/[0-9]+/$testbranch")
     logit push --delete origin $(echo "$rejected_branch" | cut -d'/' -f2-)
 }
 
 add_prepush() {
     echo "adding prepush script."
     mkdir -p $(dirname $prepush)
-    echo 'echo "$@"' > $prepush
+    echo 'echo "$@"'       > $prepush
+    echo 'echo "$@" 1>&2' >> $prepush
     chmod +x $prepush
     logit add $prepush
     # NOTE: couldn't get it to commit with a message that has whitespace :(
@@ -71,8 +72,8 @@ add_prepush() {
 }
 
 add_commit_file() {
-    filename=$(basename "$1")
-    content="${2:-bla}"
+    local filename=$(basename "$1")
+    local content="${2:-bla}"
     echo "$content" > "$filename"
     logit add "$filename"
     logit commit -m"$filename"
