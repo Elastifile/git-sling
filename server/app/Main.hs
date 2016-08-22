@@ -112,8 +112,10 @@ addAttachment fn attachedFN = do
 isDryRun :: Options -> Proposal -> Bool
 isDryRun options proposal = optForceDryRun options || proposalDryRun proposal
 
-sendProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> EShell ()
-sendProposalEmail options proposal subject body prepushLogs = do
+data IncludeAttachment = FullAttachment | MinimalAttachment
+
+formatProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> IncludeAttachment -> EShell LBS.ByteString
+formatProposalEmail options proposal subject body prepushLogs includeAttachment = do
     webHref <- liftIO $ (<> (":" <> show (optWebServerPort options))) . ("http://" <>) <$> getFullHostName
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
@@ -132,18 +134,33 @@ sendProposalEmail options proposal subject body prepushLogs = do
         Nothing -> return mail1
         Just (PrepushLogs logDir fullLogOutputFile) -> do
             logPart <- liftIO $ addAttachment fullLogOutputFile "logtail.html"
-            let tarName = encodeFP logDir <> ".tgz"
-            _tarOut <-
-                eprocsL "bash" ["-o", "pipefail", "-c",
-                                "tar czvf " <> tarName <> " " <> encodeFP logDir]
-            content <- liftIO $ LBS.readFile $ T.unpack tarName
-            let tarPart = Mail.Part "application/gzip" Mail.Base64 (Just tarName) [] content
-            return $ Mail.addPart (maybe id (:) logPart [tarPart]) mail1
+            tarParts <- case includeAttachment of
+                MinimalAttachment -> return []
+                FullAttachment -> do
+                    let tarName = encodeFP logDir <> ".tgz"
+                    _tarOut <-
+                        eprocsL "bash" ["-o", "pipefail", "-c",
+                                        "tar czvf " <> tarName <> " " <> encodeFP logDir]
+                    content <- liftIO $ LBS.readFile $ T.unpack tarName
+                    return [Mail.Part "application/gzip" Mail.Base64 (Just tarName) [] content]
+            return $ Mail.addPart (maybe id (:) logPart tarParts) mail1
 
-    renderdBS <- liftIO $ Mail.renderMail' mail
+    liftIO $ Mail.renderMail' mail
+
+sendProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> EShell ()
+sendProposalEmail options proposal subject body prepushLogs = do
+    let sendEmailWith includeAttachment = do
+            renderdBS <- formatProposalEmail options proposal subject body prepushLogs includeAttachment
+            eprocsIn (head $ optEmailClient options) (tail (optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ LE.decodeUtf8 renderdBS)
 
     eprint $ "Sending email (async) to: " <> formatEmail (proposalEmail proposal) <> " with subject: " <> subject
-    liftIO $ void $ forkIO $ runEShell $ eprocsIn (head $ optEmailClient options) (tail (optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ LE.decodeUtf8 renderdBS)
+    liftIO $ void $ forkIO $ runEShell $ do
+        sendEmailWith FullAttachment
+        `catchError`
+        \e -> do
+                eprint $ "Error while sending with attachment, will attempt to send without attachment: " <> (T.pack $ show e)
+                sendEmailWith MinimalAttachment
+
     return ()
 
 
