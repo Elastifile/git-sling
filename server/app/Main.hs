@@ -67,8 +67,8 @@ runPrepush (PrepushLogs logDir logFile) cmd baseR headR = do
     let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
         env_str = "SLING_LOG_DIR=" <> encodeFP logDir
         bashArgs = [ "-o", "pipefail", "-c"
-                   , "exec 2>&1; " <> env_str <> " " <> args
-                     <> " | tee " <> encodeFP logFile]
+                   , " ( exec 2>&1; " <> env_str <> " " <> args
+                     <> " ) | tee " <> encodeFP logFile]
     eprint $ "Executing bash with: '" <> mconcat bashArgs <> "' output goes to: " <> encodeFP logFile
     eprint "----------------------------------------------------------------------"
     eproc "bash" bashArgs (return "")
