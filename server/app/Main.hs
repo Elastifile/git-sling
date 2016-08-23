@@ -136,14 +136,13 @@ addAttachments prepushLogs includeAttachment mail =
 formatProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> IncludeAttachment -> EmailType -> EShell LBS.ByteString
 formatProposalEmail options proposal subject body prepushLogs includeAttachment emailType = do
     webHref <- liftIO $ (<> (":" <> show (optWebServerPort options))) . ("http://" <>) <$> getFullHostName
-    let statusLink = renderHtml $ do
+    let html = renderHtml $ do
             H.p . H.b $ fromString $ T.unpack subject
             body
-            H.p $ H.a H.! A.href (H.preEscapedToValue webHref)  $ "Sling Server Status"
-        html = case emailType of
-            ProposalAttemptEmail -> statusLink
-            ProposalFailureEmail -> ""
-            ProposalSuccessEmail -> ""
+            case emailType of
+                ProposalAttemptEmail -> H.p $ H.a H.! A.href (H.preEscapedToValue webHref)  $ "Sling Server Status"
+                ProposalFailureEmail -> return ()
+                ProposalSuccessEmail -> return ()
 
     mail1 <- liftIO $ Mail.simpleMail
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
