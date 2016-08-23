@@ -113,25 +113,12 @@ isDryRun :: Options -> Proposal -> Bool
 isDryRun options proposal = optForceDryRun options || proposalDryRun proposal
 
 data IncludeAttachment = FullAttachment | MinimalAttachment
+data EmailType = ProposalSuccessEmail | ProposalFailureEmail | ProposalAttemptEmail
 
-formatProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> IncludeAttachment -> EShell LBS.ByteString
-formatProposalEmail options proposal subject body prepushLogs includeAttachment = do
-    webHref <- liftIO $ (<> (":" <> show (optWebServerPort options))) . ("http://" <>) <$> getFullHostName
-    mail1 <- liftIO $ Mail.simpleMail
-        (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
-        (Mail.Address Nothing $ formatEmail sourceEmail)
-        ((if isDryRun options proposal then "(dry run) " else "")
-         <> fromBranchName (proposalName proposal)
-         <> " (" <> formatProposal proposal <> ")")
-        ""
-        (renderHtml $ do
-                H.p . H.b $ fromString $ T.unpack subject
-                body
-                H.p $ H.a H.! A.href (H.preEscapedToValue webHref)  $ "Sling Server Status")
-        []
-
-    mail <- case prepushLogs of
-        Nothing -> return mail1
+addAttachments :: Maybe PrepushLogs -> IncludeAttachment -> Mail.Mail -> EShell Mail.Mail
+addAttachments prepushLogs includeAttachment mail =
+    case prepushLogs of
+        Nothing -> return mail
         Just (PrepushLogs logDir fullLogOutputFile) -> do
             logPart <- liftIO $ addAttachment fullLogOutputFile "logtail.html"
             tarParts <- case includeAttachment of
@@ -143,14 +130,42 @@ formatProposalEmail options proposal subject body prepushLogs includeAttachment 
                                         "tar czvf " <> tarName <> " " <> encodeFP logDir]
                     content <- liftIO $ LBS.readFile $ T.unpack tarName
                     return [Mail.Part "application/gzip" Mail.Base64 (Just tarName) [] content]
-            return $ Mail.addPart (maybe id (:) logPart tarParts) mail1
+            return $ Mail.addPart (maybe id (:) logPart tarParts) mail
+
+
+formatProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> IncludeAttachment -> EmailType -> EShell LBS.ByteString
+formatProposalEmail options proposal subject body prepushLogs includeAttachment emailType = do
+    webHref <- liftIO $ (<> (":" <> show (optWebServerPort options))) . ("http://" <>) <$> getFullHostName
+    let statusLink = renderHtml $ do
+            H.p . H.b $ fromString $ T.unpack subject
+            body
+            H.p $ H.a H.! A.href (H.preEscapedToValue webHref)  $ "Sling Server Status"
+        html = case emailType of
+            ProposalAttemptEmail -> statusLink
+            ProposalFailureEmail -> ""
+            ProposalSuccessEmail -> ""
+
+    mail1 <- liftIO $ Mail.simpleMail
+        (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
+        (Mail.Address Nothing $ formatEmail sourceEmail)
+        ((if isDryRun options proposal then "(dry run) " else "")
+         <> fromBranchName (proposalName proposal)
+         <> " (" <> formatProposal proposal <> ")")
+        ""
+        html
+        []
+
+    mail <- case emailType of
+        ProposalSuccessEmail -> return mail1
+        ProposalAttemptEmail -> return mail1
+        ProposalFailureEmail -> addAttachments prepushLogs includeAttachment mail1
 
     liftIO $ Mail.renderMail' mail
 
-sendProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> EShell ()
-sendProposalEmail options proposal subject body prepushLogs = do
+sendProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> EmailType -> EShell ()
+sendProposalEmail options proposal subject body prepushLogs emailType = do
     let sendEmailWith includeAttachment = do
-            renderdBS <- formatProposalEmail options proposal subject body prepushLogs includeAttachment
+            renderdBS <- formatProposalEmail options proposal subject body prepushLogs includeAttachment emailType
             eprocsIn (head $ optEmailClient options) (tail (optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ LE.decodeUtf8 renderdBS)
 
     eprint $ "Sending email (async) to: " <> formatEmail (proposalEmail proposal) <> " with subject: " <> subject
@@ -180,7 +195,7 @@ cleanupGit proposal = do
 abortAttempt :: IORef CurrentState -> Options -> Proposal -> (Text, ExitCode) -> EShell ()
 abortAttempt currentState options proposal (msg, _err) = do
     eprint . T.pack $ "ABORTING: " ++ show msg
-    sendProposalEmail options proposal "Aborting" (H.html $ H.text msg) Nothing
+    sendProposalEmail options proposal "Aborting" (H.html $ H.text msg) Nothing ProposalFailureEmail
     cleanupGit proposal
     liftIO $ clearCurrentProposal currentState
     abort "Aborted"
@@ -196,7 +211,7 @@ rejectProposal options proposal reason prepushLogs (msg, err) = do
         origBranchName = formatProposal proposal
         msgBody = "REJECT " <> origBranchName <> " because: '" <> reason <> "' (" <> msg <> "), exit code = " <> T.pack (show err)
     eprint $ msgBody
-    sendProposalEmail options proposal ("Rejecting (" <> msg <> ")") (toHtml msgBody) prepushLogs
+    sendProposalEmail options proposal ("Rejecting (" <> msg <> ")") (toHtml msgBody) prepushLogs ProposalFailureEmail
     Git.fetch & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
     Git.deleteBranch (LocalBranch $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
@@ -290,7 +305,7 @@ transitionProposalToTarget options proposal targetPrefix prepushLogs = do
     safeCreateBranch targetBranchName
     Git.checkout (LocalBranch ontoBranchName)
     Git.deleteLocalBranch targetBranchName
-    sendProposalEmail options proposal ("Ran successfully, moved to: " <> prefixToText targetPrefix) "" (Just prepushLogs)
+    sendProposalEmail options proposal ("Ran successfully, moved to: " <> prefixToText targetPrefix) "" (Just prepushLogs) ProposalSuccessEmail
     return ()
     where
         ontoBranchName = proposalBranchOnto proposal
@@ -299,12 +314,12 @@ transitionProposalToCompletion :: Options -> Proposal -> PrepushLogs -> EShell (
 transitionProposalToCompletion options proposal prepushLogs = do
     Git.checkout (LocalBranch ontoBranchName)
     if isDryRun options proposal
-    then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs)
+    then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs) ProposalSuccessEmail
     else do
         -- TODO ensure not dirty
         eprint $ "Updating: " <> fromBranchName ontoBranchName
         Git.push -- TODO -u origin master
-        sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs)
+        sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs) ProposalSuccessEmail
     where
         ontoBranchName = proposalBranchOnto proposal
 
@@ -326,7 +341,7 @@ attemptBranch currentState options logDir proposalBranch proposal = do
     let title = if isDryRun options proposal
                 then "Running dry run"
                 else "Attempting to merge"
-    sendProposalEmail options proposal title commitLogHtml Nothing
+    sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
 
     -- cleanup leftover state from previous runs
     cleanupGit proposal
