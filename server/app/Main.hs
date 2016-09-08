@@ -414,7 +414,7 @@ attemptBranch currentState options logDir proposalBranch proposal = do
             -- branch with the name the user gave to this proposal, and not
             -- the onto branch's name.
             Git.checkout niceBranch
-            Git.merge Git.MergeFFOnly (LocalBranch ontoBranchName)
+            Git.reset Git.ResetHard (RefBranch $ LocalBranch ontoBranchName)
 
             -- DO IT!
             logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
