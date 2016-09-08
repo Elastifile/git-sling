@@ -294,10 +294,8 @@ withLocalBranch name act = do
     return res
     where branch = LocalBranch name
 
-transitionProposalToTarget :: Options -> Proposal -> Prefix -> PrepushLogs -> EShell ()
-transitionProposalToTarget options proposal targetPrefix prepushLogs = do
-    let ontoRef = Git.RefBranch $ RemoteBranch origin ontoBranchName
-    newBase <- Git.getRef ontoRef
+transitionProposalToTarget :: Options -> Git.Ref -> Proposal -> Prefix -> PrepushLogs -> EShell ()
+transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = do
     let targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix, proposalBranchBase = newBase }
         targetBranchName = mkBranchName targetProposalName
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack targetProposalName
@@ -324,11 +322,11 @@ transitionProposalToCompletion options proposal prepushLogs = do
     where
         ontoBranchName = proposalBranchOnto proposal
 
-transitionProposal :: Options -> Proposal -> PrepushLogs -> EShell ()
-transitionProposal options proposal prepushLogs =
+transitionProposal :: Options -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
+transitionProposal options newBase proposal prepushLogs =
     case optTargetPrefix options of
         Nothing -> transitionProposalToCompletion options proposal prepushLogs
-        Just targetPrefix -> transitionProposalToTarget options proposal targetPrefix prepushLogs
+        Just targetPrefix -> transitionProposalToTarget options newBase proposal targetPrefix prepushLogs
 
 
 attemptBranch :: IORef CurrentState -> Options -> FilePath -> Branch -> Proposal -> EShell ()
@@ -429,7 +427,7 @@ attemptBranch currentState options logDir proposalBranch proposal = do
 
             eprint "Prepush command ran succesfully"
 
-            transitionProposal options proposal prepushLogs
+            transitionProposal options finalBase proposal prepushLogs
 
             Git.checkout (LocalBranch ontoBranchName)
             Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
