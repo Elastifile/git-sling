@@ -13,6 +13,8 @@ cd $workdir
 
 git clone $remote work
 cd work
+git config user.email "you@example.com"
+git config user.name "Your Name"
 
 echo "Working in: $workdir/work"
 
@@ -37,6 +39,8 @@ yes | run_cmd $sling_propose master
 cd $serverdir
 logit clone $remote work
 cd work
+git config user.email "you@example.com"
+git config user.name "Your Name"
 
 echo "----------------------------------------------------------------------"
 
