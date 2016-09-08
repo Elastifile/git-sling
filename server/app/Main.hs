@@ -23,7 +23,7 @@ import           Sling.Git                     (Branch (..), Ref (..),
 import qualified Sling.Git as Git
 import           Sling.Lib                     (EShell, Email (..), abort, eview, eproc,
                                                 eprocsIn, eprocsL, formatEmail, eprint,
-                                                ignoreError, runEShell, fromHash, natInt)
+                                                ignoreError, runEShell, fromHash)
 import           Sling.Proposal
 import           Sling.Web (forkServer, CurrentState(..), emptyCurrentState)
 import           Text.Regex.Posix ((=~))
@@ -296,8 +296,8 @@ withLocalBranch name act = do
 
 transitionProposalToTarget :: Options -> Proposal -> Prefix -> PrepushLogs -> EShell ()
 transitionProposalToTarget options proposal targetPrefix prepushLogs = do
-    let ontoRef = Git.RefBranch $ LocalBranch ontoBranchName
-    newBase <- Git.RefHash . Git.logEntryShortHash . head . reverse <$> Git.log (Git.RefParent ontoRef $ natInt 2) ontoRef
+    let ontoRef = Git.RefBranch $ RemoteBranch origin ontoBranchName
+    newBase <- Git.getRef ontoRef
     let targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix, proposalBranchBase = newBase }
         targetBranchName = mkBranchName targetProposalName
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack targetProposalName

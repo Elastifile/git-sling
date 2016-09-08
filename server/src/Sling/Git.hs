@@ -247,6 +247,9 @@ log base top = join $ mapM (mustMatch logPat) <$> git ["log", "--format=%H %h %a
                                                       , refName base <> ".." <> refName top
                                                       , "--"]
 
+getRef :: Ref -> EShell Ref
+getRef ref = RefHash . hash . head <$> git ["log", "-1", "--format=%H", refName ref, "--"]
+
 commitAmend :: Email -> Ref -> EShell ()
 commitAmend email ref =
     git ["commit", "--amend", "-s", "--author=" <> formatEmail email, "-C", refName ref]
