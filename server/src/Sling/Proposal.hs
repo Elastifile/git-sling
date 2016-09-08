@@ -77,18 +77,18 @@ formatProposal p = "sling/" <> prefix <> "/" <> suffix
 refPat :: Pattern Git.Ref
 refPat =
     ((text "HEAD" >> pure Git.RefHead)
-     <|> (flip Git.RefParent <$> ((natInt <$> decimal) <* text "^") <*> refPat))
+     <|> (flip Git.RefParent <$> ((natInt <$> decimal) <* text "#") <*> refPat))
      <|> (Git.RefHash . hash . T.pack <$> some hexDigit)
      <|> (text "R-" *> (Git.RefBranch <$> remoteBranchPat))
      <|> (text "L-" *> (Git.RefBranch . Git.LocalBranch <$> branchNamePat))
     where
-        branchNamePat = Git.mkBranchName . T.pack <$> some (notChar '^')
+        branchNamePat = Git.mkBranchName . T.pack <$> some (notChar '#')
         remoteBranchPat =
             Git.RemoteBranch <$> (Git.Remote . nonEmptyText . T.pack <$> some (notChar '/')) <*> (char '/' *> branchNamePat)
 
 
 formatRef :: Git.Ref -> Text
-formatRef (Git.RefParent r n) = (T.pack . show $ fromNatInt n) <> "^" <> formatRef r
+formatRef (Git.RefParent r n) = (T.pack . show $ fromNatInt n) <> "#" <> formatRef r
 formatRef (Git.RefBranch (Git.RemoteBranch r n)) = "R-" <> fromNonEmptyText (Git.remoteName r) <> "/" <> Git.fromBranchName n
 formatRef r@(Git.RefBranch (Git.LocalBranch{})) = "L-" <> Git.refName r
 formatRef r = Git.refName r
