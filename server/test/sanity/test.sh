@@ -72,6 +72,10 @@ exec_test() {
     logit fetch -p
     logit checkout master
     logit reset --hard origin/master
+
+    git branch -r | grep proposed | cut -d/ -f2- | xargs -r git push --delete origin
+    git branch | grep proposed | xargs -r git branch -D
+
     echo "----------------------------------------------------------------------"
     echo "Running test: $1"
     source "$script_dir/$1"
