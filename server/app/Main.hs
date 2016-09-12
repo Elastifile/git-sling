@@ -23,7 +23,7 @@ import           Sling.Git                     (Branch (..), Ref (..),
 import qualified Sling.Git as Git
 import           Sling.Lib                     (EShell, Email (..), abort, eview, eproc,
                                                 eprocsIn, eprocsL, formatEmail, eprint,
-                                                ignoreError, runEShell, fromHash)
+                                                ignoreError, runEShell, fromHash, natInt, fromNatInt)
 import           Sling.Proposal
 import           Sling.Web (forkServer, CurrentState(..), emptyCurrentState)
 import           Text.Regex.Posix ((=~))
@@ -296,7 +296,9 @@ withLocalBranch name act = do
 
 transitionProposalToTarget :: Options -> Git.Ref -> Proposal -> Prefix -> PrepushLogs -> EShell ()
 transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = do
-    let targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix, proposalBranchBase = newBase }
+    allProposals <- getProposals
+    let maxQueueIndex = maximum $ map (fromNatInt . proposalQueueIndex . snd) allProposals
+        targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix, proposalBranchBase = newBase, proposalQueueIndex = natInt $ maxQueueIndex + 1 }
         targetBranchName = mkBranchName targetProposalName
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack targetProposalName
     when (targetBranchName == ontoBranchName)
@@ -612,10 +614,18 @@ handleSpecificProposal state options proposal = do
         _ -> abort $ "Assertion failed: multiple branches matching the same proposal: " <> T.pack (show proposalBranchName)
     attemptBranchOrAbort state options (uncurry Git.RemoteBranch branch) proposal
 
+parseProposals :: [Branch] -> [(Branch, Proposal)]
+parseProposals remoteBranches =
+    List.sortOn (proposalQueueIndex . snd)
+    $ mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch))
+    remoteBranches
+
+getProposals = parseProposals . map (uncurry Git.RemoteBranch) <$> Git.remoteBranches
+
 serverPoll :: IORef CurrentState -> Options -> PollOptions -> EShell Bool
 serverPoll currentState options pollOptions = do
     Git.fetch
-    remoteBranches <- Git.remoteBranches
+    allProposals <- getProposals
 
     eprint . T.pack $ mconcat $ List.intersperse "\n\t"
         [ "Filters: "
@@ -630,12 +640,7 @@ serverPoll currentState options pollOptions = do
         , "Target: " <> maybe "" (T.unpack . prefixToText) (optTargetPrefix options)
         ]
 
-    let allProposals =
-            List.sortOn (proposalQueueIndex . snd)
-            $ mapMaybe ((\branch -> (branch,) <$> parseProposal (branchName branch))
-                        . uncurry Git.RemoteBranch)
-            remoteBranches
-        proposals = filter (shouldConsiderProposal pollOptions . snd) allProposals
+    let proposals = filter (shouldConsiderProposal pollOptions . snd) allProposals
 
         showProposals ps = List.intercalate "\n\t" (map (show . branchName . fst) ps)
 
