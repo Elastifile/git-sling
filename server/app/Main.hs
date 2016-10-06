@@ -392,7 +392,7 @@ attemptBranch serverId currentState options logDir proposalBranch proposal = do
 
         withNewBranch inProgressBranchName $ do
             eprint "Deleting proposal branch..."
-            Git.deleteBranch proposalBranch
+            when (proposalStatus proposal == ProposalProposed) $ Git.deleteBranch proposalBranch
 
             -- go back to 'onto', decide whether to create a merge commit on
             -- top (if we should merge ff only)
