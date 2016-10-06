@@ -96,6 +96,7 @@ exec_test "tests/order.sh"
 exec_test "tests/multi-propose.sh"
 exec_test "tests/specific-proposal.sh"
 exec_test "tests/source-target.sh"
+exec_test "tests/in-progress-resume.sh"
 
 echo '
  #####  #     #  #####   #####  #######  #####   #####
