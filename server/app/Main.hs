@@ -298,7 +298,10 @@ transitionProposalToTarget :: Options -> Git.Ref -> Proposal -> Prefix -> Prepus
 transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = do
     allProposals <- getProposals
     let maxQueueIndex = maximum $ map (fromNatInt . proposalQueueIndex . snd) allProposals
-        targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix, proposalBranchBase = newBase, proposalQueueIndex = natInt $ maxQueueIndex + 1 }
+        targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix
+                                                       , proposalBranchBase = newBase
+                                                       , proposalQueueIndex = natInt $ maxQueueIndex + 1
+                                                       , proposalStatus = ProposalProposed }
         targetBranchName = mkBranchName targetProposalName
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack targetProposalName
     when (targetBranchName == ontoBranchName)
