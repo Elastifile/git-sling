@@ -223,10 +223,10 @@ rejectProposal options proposal reason prepushLogs (msg, err) = do
     Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
     abort "Rejected"
 
-attemptBranchOrAbort :: IORef CurrentState -> Options -> Branch -> Proposal -> EShell ()
-attemptBranchOrAbort currentState options branch proposal = do
+attemptBranchOrAbort :: Text -> IORef CurrentState -> Options -> Branch -> Proposal -> EShell ()
+attemptBranchOrAbort serverId currentState options branch proposal = do
     dirPath <- FP.decodeString <$> liftIO (createTempDirectory "/tmp" "sling.log")
-    attemptBranch currentState options dirPath branch proposal `catchError` abortAttempt currentState options proposal
+    attemptBranch serverId currentState options dirPath branch proposal `catchError` abortAttempt currentState options proposal
 
 htmlFormatCommit :: Maybe Text -> Git.LogEntry -> H.Html
 htmlFormatCommit urlPrefix l = do
@@ -331,8 +331,8 @@ transitionProposal options newBase proposal prepushLogs =
         Just targetPrefix -> transitionProposalToTarget options newBase proposal targetPrefix prepushLogs
 
 
-attemptBranch :: IORef CurrentState -> Options -> FilePath -> Branch -> Proposal -> EShell ()
-attemptBranch currentState options logDir proposalBranch proposal = do
+attemptBranch :: Text -> IORef CurrentState -> Options -> FilePath -> Branch -> Proposal -> EShell ()
+attemptBranch serverId currentState options logDir proposalBranch proposal = do
     Git.fetch
     commits <- Git.log (proposalBranchBase proposal) (RefBranch proposalBranch)
 
@@ -384,7 +384,7 @@ attemptBranch currentState options logDir proposalBranch proposal = do
 
         -- rebase succeeded, we can now take this job
 
-        let inProgressProposalName = formatProposal $ proposal { proposalStatus = ProposalInProgress }
+        let inProgressProposalName = formatProposal $ proposal { proposalStatus = ProposalInProgress serverId }
             inProgressBranchName = mkBranchName inProgressProposalName
         eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack inProgressProposalName
 
@@ -455,12 +455,16 @@ data PollOptions =
     , optPollMode :: PollMode
     }
 
+
+data ServerId = ServerIdHostName | ServerIdName Text
+
 data Options =
     Options
     { optWebServerPort :: Int
     , optEmailClient :: [Text]
     , optForceDryRun :: Bool
     , optTargetPrefix :: Maybe Prefix
+    , optServerId :: ServerId
     , optProposalMode :: Command
     }
 
@@ -589,12 +593,21 @@ parser =
     <*> optional (prefixOption
                   (long "target-prefix" <>
                    help "If missing, successful branches are merged (unless dry-run) & deleted. If non-empty, prefix of branches to be used for succesful proposals (branches will not be merged)"))
+    <*> (fmap (maybe ServerIdHostName (ServerIdName . T.pack)) <$>
+         optional $ strOption
+         (long "server-id" <>
+          metavar "SERVER_ID" <>
+          help ("Used for resuming in-progress jobs that were aborted due to a failed server")))
     <*> parseModeBranches
 
 
-shouldConsiderProposal :: PollOptions -> Proposal -> Bool
-shouldConsiderProposal pollOptions proposal =
-    (ProposalProposed == proposalStatus proposal)
+shouldConsiderProposal :: Text -> PollOptions -> Proposal -> Bool
+shouldConsiderProposal serverId pollOptions proposal =
+    (case proposalStatus proposal of
+         ProposalProposed -> True
+         ProposalInProgress proposalServerId -> proposalServerId == serverId
+         ProposalRejected -> False
+    )
     && (optSourcePrefix pollOptions == proposalPrefix proposal)
     && fromMaybe True (checkFilter <$> optBranchFilterAll pollOptions)
     && fromMaybe True (not . checkFilter <$> optBranchExcludeFilterAll pollOptions)
@@ -602,8 +615,8 @@ shouldConsiderProposal pollOptions proposal =
     && fromMaybe True ((proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun pollOptions)
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
 
-handleSpecificProposal :: IORef CurrentState -> Options -> Proposal -> EShell ()
-handleSpecificProposal state options proposal = do
+handleSpecificProposal :: Text -> IORef CurrentState -> Options -> Proposal -> EShell ()
+handleSpecificProposal serverId state options proposal = do
     Git.fetch
     remoteBranches <- Git.remoteBranches
     let proposalBranchName = formatProposal proposal
@@ -612,7 +625,7 @@ handleSpecificProposal state options proposal = do
         [] -> abort $ "Failed to find branch: " <> T.pack (show proposalBranchName)
         [b] -> return b
         _ -> abort $ "Assertion failed: multiple branches matching the same proposal: " <> T.pack (show proposalBranchName)
-    attemptBranchOrAbort state options (uncurry Git.RemoteBranch branch) proposal
+    attemptBranchOrAbort serverId state options (uncurry Git.RemoteBranch branch) proposal
 
 parseProposals :: [Branch] -> [(Branch, Proposal)]
 parseProposals remoteBranches =
@@ -620,10 +633,11 @@ parseProposals remoteBranches =
     $ mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch))
     remoteBranches
 
+getProposals :: EShell [(Branch, Proposal)]
 getProposals = parseProposals . map (uncurry Git.RemoteBranch) <$> Git.remoteBranches
 
-serverPoll :: IORef CurrentState -> Options -> PollOptions -> EShell Bool
-serverPoll currentState options pollOptions = do
+serverPoll :: Text -> IORef CurrentState -> Options -> PollOptions -> EShell Bool
+serverPoll serverId currentState options pollOptions = do
     Git.fetch
     allProposals <- getProposals
 
@@ -640,7 +654,7 @@ serverPoll currentState options pollOptions = do
         , "Target: " <> maybe "" (T.unpack . prefixToText) (optTargetPrefix options)
         ]
 
-    let proposals = filter (shouldConsiderProposal pollOptions . snd) allProposals
+    let proposals = filter (shouldConsiderProposal serverId pollOptions . snd) allProposals
 
         showProposals ps = List.intercalate "\n\t" (map (show . branchName . fst) ps)
 
@@ -653,16 +667,16 @@ serverPoll currentState options pollOptions = do
             eprint "Done - have nothing to do."
             return False
         (topProposal:_) -> do
-            (uncurry $ attemptBranchOrAbort currentState options) topProposal
+            (uncurry $ attemptBranchOrAbort serverId currentState options) topProposal
             liftIO $ clearCurrentProposal currentState
             eprint . T.pack $ "Done proposal: " ++ show topProposal
             return True
 
-serverLoop :: IORef CurrentState -> Options -> PollOptions -> EShell ()
-serverLoop currentState options pollOptions = do
+serverLoop :: Text -> IORef CurrentState -> Options -> PollOptions -> EShell ()
+serverLoop serverId currentState options pollOptions = do
     void $ liftIO $ forkServer (optWebServerPort options) (readIORef currentState)
     let go = do
-            havePending <- serverPoll currentState options pollOptions
+            havePending <- serverPoll serverId currentState options pollOptions
             case (optPollMode pollOptions) of
                 PollModeOneShot -> return ()
                 PollModeAllQueued -> if havePending then go else return ()
@@ -675,6 +689,11 @@ main :: IO ()
 main = runEShell $ eview $ do
     options <- liftIO parseOpts
     currentState <- liftIO $ newIORef emptyCurrentState
+    hostName <- liftIO getFullHostName
+    let serverId = case optServerId options of
+            ServerIdHostName -> T.pack hostName
+            ServerIdName serverIdName -> serverIdName
+
     case cmdMode (optProposalMode options) of
-        ProposalModePoll pollOptions -> serverLoop currentState options pollOptions
-        ProposalModeSingle proposal -> handleSpecificProposal currentState options proposal
+        ProposalModePoll pollOptions -> serverLoop serverId currentState options pollOptions
+        ProposalModeSingle proposal -> handleSpecificProposal serverId currentState options proposal

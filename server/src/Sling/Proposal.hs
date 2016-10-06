@@ -16,7 +16,7 @@ import           Turtle              (Pattern, alphaNum, char, decimal, eof,
 
 data ProposalStatus
     = ProposalProposed
-    | ProposalInProgress
+    | ProposalInProgress { _proposalInProgressServerId :: Text }
     | ProposalRejected
       deriving (Show, Eq, Ord)
 
@@ -64,7 +64,7 @@ formatProposal p = "sling/" <> prefix <> "/" <> suffix
         prefix = maybe T.empty (\x -> (proposalPrefixPrefix <> prefixToText x) <> "/") (proposalPrefix p) <>
             case proposalStatus p of
                 ProposalProposed -> proposedPrefix
-                ProposalInProgress -> inProgressPrefix
+                ProposalInProgress serverId -> inProgressPrefix <> "/" <> serverId
                 ProposalRejected -> rejectBranchPrefix
         suffix =
             T.pack (show . fromNatInt . proposalQueueIndex $ p)
@@ -103,8 +103,8 @@ proposalPat = do
     prefix <- (text ("/" <> proposalPrefixPrefix) *> (Just . Prefix . nonEmptyText <$> (someText <* fieldSep))) <|> (fieldSep *> pure Nothing)
 
     ps <- (text proposedPrefix *> pure ProposalProposed)
-        <|> (text inProgressPrefix *> pure ProposalInProgress)
         <|> (text rejectBranchPrefix *> pure ProposalRejected)
+        <|> (text inProgressPrefix *> fieldSep *> (ProposalInProgress <$> someText))
     fieldSep
 
     index <- natInt <$> decimal

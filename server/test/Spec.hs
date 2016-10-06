@@ -41,10 +41,8 @@ instance Arbitrary Hash where
     shrink = map (hash . T.pack) . filter (not . null) . shrink . T.unpack . fromHash
 
 -- Determined 'empirically' :(
--- TODO: this is too permissive. See 'man git-check-ref-format' or
--- https://www.kernel.org/pub/software/scm/git/docs/git-check-ref-format.html
 branchChars :: Gen Char
-branchChars = elements (['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-/_\\.!@#$%&")
+branchChars = elements (['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-/_\\.")
 
 instance Arbitrary BranchName where
     arbitrary = mkBranchName . T.pack <$> do
@@ -77,9 +75,16 @@ instance Arbitrary Email where
 instance Arbitrary Prefix where
     arbitrary = Prefix <$> arbitrary
 
-derive makeArbitrary ''ProposalStatus
-derive makeArbitrary ''Proposal
+instance Arbitrary ProposalStatus where
+    arbitrary = oneof
+        [ pure ProposalProposed
+        , pure ProposalRejected
+        , ProposalInProgress . T.pack <$> do
+                l <- choose (1,5)
+                replicateM l branchChars
+        ]
 
+derive makeArbitrary ''Proposal
 derive makeArbitrary ''Branch
 derive makeArbitrary ''Ref
 
