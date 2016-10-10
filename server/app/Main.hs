@@ -297,9 +297,10 @@ withLocalBranch name act = do
 transitionProposalToTarget :: Options -> Git.Ref -> Proposal -> Prefix -> PrepushLogs -> EShell ()
 transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = do
     allProposals <- getProposals
+    shortBase <- Git.shortenRef newBase
     let maxQueueIndex = maximum $ map (fromNatInt . proposalQueueIndex . snd) allProposals
         targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix
-                                                       , proposalBranchBase = newBase
+                                                       , proposalBranchBase = shortBase
                                                        , proposalQueueIndex = natInt $ maxQueueIndex + 1
                                                        , proposalStatus = ProposalProposed }
         targetBranchName = mkBranchName targetProposalName
