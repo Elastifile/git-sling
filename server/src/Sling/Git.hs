@@ -57,6 +57,12 @@ data Branch
 data Ref = RefBranch Branch | RefHead | RefHash Hash | RefParent Ref NatInt
     deriving (Show, Eq, Ord)
 
+refTraverseHash :: Applicative f => (Hash -> f Hash) -> Ref -> f Ref
+refTraverseHash _ (RefBranch b) = pure $ RefBranch b
+refTraverseHash _ RefHead = pure RefHead
+refTraverseHash f (RefHash h) = RefHash <$> f h
+refTraverseHash f (RefParent r n) = flip RefParent n <$> refTraverseHash f r
+
 branchName :: Branch -> Text
 branchName (LocalBranch n) = fromBranchName n
 branchName (RemoteBranch _ n) = fromBranchName n
@@ -102,6 +108,12 @@ filePat = do _ <- spaces
 status :: EShell [Maybe GitStatus]
 status = map (singleMatch filePat) <$> git ["status", "--porcelain"]
     -- ^|^ rmap (singleMatch filePat)
+
+shortenHash :: Hash -> EShell Hash
+shortenHash h = hash . head <$> git ["rev-parse", "--short", fromHash h]
+
+shortenRef :: Ref -> EShell Ref
+shortenRef = refTraverseHash shortenHash
 
 class CmdLineOption c where
     optionToText :: c -> Text
