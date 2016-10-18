@@ -9,7 +9,7 @@ import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Char8 as BS8
 import           Data.IORef
-import           Data.Maybe (fromMaybe, mapMaybe)
+import           Data.Maybe (fromMaybe, mapMaybe, catMaybes)
 import           Data.String (fromString)
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -640,8 +640,17 @@ parseProposals remoteBranches =
 getProposals :: EShell [(Branch, Proposal)]
 getProposals = parseProposals . map (uncurry Git.RemoteBranch) <$> Git.remoteBranches
 
+cleanupBranches :: EShell ()
+cleanupBranches = do
+    slingLocalBranches <- map (Git.mkBranchName . formatProposal)
+        . catMaybes
+        . map (parseProposal . Git.fromBranchName)
+        <$> Git.localBranches
+    mapM_ Git.deleteLocalBranch slingLocalBranches
+
 serverPoll :: Text -> IORef CurrentState -> Options -> PollOptions -> EShell Bool
 serverPoll serverId currentState options pollOptions = do
+    cleanupBranches
     Git.fetch
     allProposals <- getProposals
 
