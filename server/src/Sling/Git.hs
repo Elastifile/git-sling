@@ -4,7 +4,7 @@ module Sling.Git where
 import           Control.Applicative    (optional, (<|>))
 import           Control.Monad          (join, when)
 
-import           Data.Maybe             (mapMaybe)
+import           Data.Maybe             (mapMaybe, catMaybes)
 import           Data.Monoid            ((<>))
 import           Data.String            (IsString (..))
 import           Data.Text              (Text)
@@ -180,7 +180,9 @@ localBranchPat :: Pattern BranchName
 localBranchPat = mkBranchName . T.pack <$> (spaces *> optional (char '*') *> spaces *> some notSpace) <* eof
 
 localBranches :: EShell [BranchName]
-localBranches = git ["branch", "--list", "--no-color"] >>= mapM (mustMatch localBranchPat)
+localBranches = do
+    allResults <- git ["branch", "--list", "--no-color"]
+    return . catMaybes $ map (singleMatch localBranchPat) allResults
 
 deleteLocalBranch :: BranchName -> EShell ()
 deleteLocalBranch name = git ["branch", "-D", fromBranchName name] >> pure ()
