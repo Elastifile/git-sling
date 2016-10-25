@@ -339,6 +339,47 @@ transitionProposal options newBase proposal prepushLogs =
         Nothing -> transitionProposalToCompletion options proposal prepushLogs
         Just targetPrefix -> transitionProposalToTarget options newBase proposal targetPrefix prepushLogs
 
+runAttempt ::
+    IORef CurrentState -> Options -> FilePath -> Proposal ->
+    Ref -> Git.BranchName -> Branch -> Git.MergeFF -> EShell ()
+runAttempt currentState options logDir proposal finalBase ontoBranchName niceBranch mergeFF = do
+    -- go back to 'onto', decide whether to create a merge commit on
+    -- top (if we should merge ff only)
+    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
+
+    Git.merge mergeFF niceBranch
+    when (mergeFF == Git.MergeNoFF) $
+        Git.commitAmend (proposalEmail proposal) Git.RefHead
+
+    finalHead <- Git.currentRef
+
+    -- Fast-forward the work branch to match the merged 'onto' we do
+    -- this so that the prepush script will see itself running on a
+    -- branch with the name the user gave to this proposal, and not
+    -- the onto branch's name.
+    Git.checkout (RefBranch niceBranch)
+    Git.reset Git.ResetHard (RefBranch $ LocalBranch ontoBranchName)
+
+    -- DO IT!
+    logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
+    let prepushLogs = PrepushLogs logDir (FP.fromText logFileName)
+    liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just $ T.unpack logFileName }
+
+    -- If this fails, reject branch will be created first; then the cleanup of in-progress
+    -- branch will delete that one, so we're safe against losing the proposal
+    let prepushCmd = cmdPrepushCommandAnArgs (optProposalMode options)
+    runPrepush prepushLogs prepushCmd finalBase finalHead
+        `catchError` rejectProposal options proposal "Prepush command failed" (Just prepushLogs)
+
+    eprint "Prepush command ran succesfully"
+
+    transitionProposal options finalBase proposal prepushLogs
+
+    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
+    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
+
+    eprint $ "Finished handling proposal " <> formatProposal proposal
+
 
 attemptBranch :: Text -> IORef CurrentState -> Options -> FilePath -> Branch -> Proposal -> EShell ()
 attemptBranch serverId currentState options logDir proposalBranch proposal = do
@@ -402,48 +443,12 @@ attemptBranch serverId currentState options logDir proposalBranch proposal = do
         withNewBranch inProgressBranchName $ do
             eprint "Deleting proposal branch..."
             when (proposalStatus proposal == ProposalProposed) $ Git.deleteBranch proposalBranch
-
-            -- go back to 'onto', decide whether to create a merge commit on
-            -- top (if we should merge ff only)
-            Git.checkout (RefBranch $ LocalBranch ontoBranchName)
-
             isMerge <- Git.isMergeCommit (RefBranch niceBranch)
             let mergeFF =
                     if isMerge || (length commits == 1)
                     then Git.MergeFFOnly
                     else Git.MergeNoFF
-            Git.merge mergeFF niceBranch
-            when (mergeFF == Git.MergeNoFF) $
-                Git.commitAmend (proposalEmail proposal) Git.RefHead
-
-            finalHead <- Git.currentRef
-
-            -- Fast-forward the work branch to match the merged 'onto' we do
-            -- this so that the prepush script will see itself running on a
-            -- branch with the name the user gave to this proposal, and not
-            -- the onto branch's name.
-            Git.checkout (RefBranch niceBranch)
-            Git.reset Git.ResetHard (RefBranch $ LocalBranch ontoBranchName)
-
-            -- DO IT!
-            logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
-            let prepushLogs = PrepushLogs logDir (FP.fromText logFileName)
-            liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just $ T.unpack logFileName }
-
-            -- If this fails, reject branch will be created first; then the cleanup of in-progress
-            -- branch will delete that one, so we're safe against losing the proposal
-            let prepushCmd = cmdPrepushCommandAnArgs (optProposalMode options)
-            runPrepush prepushLogs prepushCmd finalBase finalHead
-                `catchError` rejectProposal options proposal "Prepush command failed" (Just prepushLogs)
-
-            eprint "Prepush command ran succesfully"
-
-            transitionProposal options finalBase proposal prepushLogs
-
-            Git.checkout (RefBranch $ LocalBranch ontoBranchName)
-            Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
-
-            eprint $ "Finished handling proposal " <> formatProposal proposal
+            runAttempt currentState options logDir proposal finalBase ontoBranchName niceBranch mergeFF
 
 usage :: String
 usage = List.intercalate "\n"
