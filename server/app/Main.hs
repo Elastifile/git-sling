@@ -271,16 +271,19 @@ safeCreateBranch targetBranchName = do
     _ <- Git.createRemoteTrackingBranch origin targetBranchName
     return ()
 
+deleteLocalAndRemote :: Git.BranchName -> EShell ()
+deleteLocalAndRemote b = do
+    Git.deleteBranch (Git.LocalBranch b)
+    Git.deleteBranch (RemoteBranch origin b)
+
 withNewBranch :: Git.BranchName -> EShell a -> EShell a
 withNewBranch b act = do
     currentRef <- Git.currentRef
     safeCreateBranch b
     let cleanup = do
             Git.checkout currentRef
-            Git.deleteBranch (Git.LocalBranch b)
-            Git.deleteBranch (RemoteBranch origin b)
+            deleteLocalAndRemote b
     res <- act `catchError` (\e -> cleanup >> throwError e)
-    cleanup
     return res
 
 withLocalBranch :: Git.BranchName -> EShell () -> EShell ()
@@ -392,7 +395,6 @@ attemptBranch serverId currentState options logDir proposalBranch proposal = do
     let title = if isDryRun options proposal
                 then "Running dry run"
                 else "Attempting to merge"
-    sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
 
     -- cleanup leftover state from previous runs
     cleanupGit proposal
@@ -439,16 +441,23 @@ attemptBranch serverId currentState options logDir proposalBranch proposal = do
         eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack inProgressProposalName
 
         Git.checkout $ RefBranch proposalBranch
+        isMerge <- Git.isMergeCommit (RefBranch niceBranch)
+        let mergeFF =
+                if isMerge || (length commits == 1)
+                then Git.MergeFFOnly
+                else Git.MergeNoFF
 
         withNewBranch inProgressBranchName $ do
             eprint "Deleting proposal branch..."
-            when (proposalStatus proposal == ProposalProposed) $ Git.deleteBranch proposalBranch
-            isMerge <- Git.isMergeCommit (RefBranch niceBranch)
-            let mergeFF =
-                    if isMerge || (length commits == 1)
-                    then Git.MergeFFOnly
-                    else Git.MergeNoFF
-            runAttempt currentState options logDir proposal finalBase ontoBranchName niceBranch mergeFF
+            jobTaken <- case proposalStatus proposal of
+                ProposalInProgress{} -> return True
+                ProposalProposed -> (Git.deleteBranch proposalBranch >> return True)
+                    `catchError` (const $ eprint "Can't delete proposal - Other slave took the job? Dropping" >> return False)
+                ProposalRejected -> error "ASSERTION FAILED! Shouldn't be taking rejected proposal"
+            when jobTaken $ do
+                sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
+                runAttempt currentState options logDir proposal finalBase ontoBranchName niceBranch mergeFF
+                deleteLocalAndRemote inProgressBranchName
 
 usage :: String
 usage = List.intercalate "\n"
