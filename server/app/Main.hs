@@ -273,8 +273,10 @@ safeCreateBranch targetBranchName = do
 
 withNewBranch :: Git.BranchName -> EShell a -> EShell a
 withNewBranch b act = do
+    currentRef <- Git.currentRef
     safeCreateBranch b
     let cleanup = do
+            Git.checkout currentRef
             Git.deleteBranch (Git.LocalBranch b)
             Git.deleteBranch (RemoteBranch origin b)
     res <- act `catchError` (\e -> cleanup >> throwError e)
