@@ -85,7 +85,7 @@ sourceEmail = Email "elasti-prepush" "elastifile.com"
 resetLocalOnto :: Proposal -> EShell ()
 resetLocalOnto proposal = do
     let ontoBranchName = proposalBranchOnto proposal
-    Git.checkout (LocalBranch ontoBranchName)
+    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
 
 addAttachment :: FilePath -> Text -> IO (Maybe Mail.Part)
@@ -216,7 +216,7 @@ rejectProposal options proposal reason prepushLogs (msg, err) = do
     Git.deleteBranch (LocalBranch $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
     Git.reset Git.ResetHard RefHead
     -- We have to be on another branch before deleting stuff, so arbitrarily picking onto
-    Git.checkout (LocalBranch $ proposalBranchOnto proposal)
+    Git.checkout (RefBranch . LocalBranch $ proposalBranchOnto proposal)
     _ <- Git.createLocalBranch (mkBranchName rejectBranchName) RefHead
     _ <- Git.createRemoteTrackingBranch origin $ mkBranchName rejectBranchName
     Git.deleteBranch (LocalBranch . mkBranchName $ formatProposal proposal) & ignoreError
@@ -283,12 +283,15 @@ withNewBranch b act = do
 
 withLocalBranch :: Git.BranchName -> EShell () -> EShell ()
 withLocalBranch name act = do
+    currentRef <- Git.currentRef
     Git.deleteBranch branch & ignoreError
     Git.localBranches >>= (liftIO . mapM_ print)
     shouldCreate <- not . elem name <$> Git.localBranches
     when shouldCreate $ void $ Git.createLocalBranch name RefHead
-    Git.checkout branch
-    let cleanup = when shouldCreate $ Git.deleteBranch branch
+    Git.checkout (RefBranch branch)
+    let cleanup = do
+            Git.checkout currentRef
+            when shouldCreate $ Git.deleteBranch branch
     res <- act `catchError` (\e -> cleanup >> throwError e)
     cleanup
     return res
@@ -308,7 +311,7 @@ transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = d
     when (targetBranchName == ontoBranchName)
         $ abort $ "Can't handle branch, onto == target: " <> targetProposalName
     safeCreateBranch targetBranchName
-    Git.checkout (LocalBranch ontoBranchName)
+    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
     Git.deleteLocalBranch targetBranchName
     sendProposalEmail options proposal ("Ran successfully, moved to: " <> prefixToText targetPrefix) "" (Just prepushLogs) ProposalSuccessEmail
     return ()
@@ -317,7 +320,7 @@ transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = d
 
 transitionProposalToCompletion :: Options -> Proposal -> PrepushLogs -> EShell ()
 transitionProposalToCompletion options proposal prepushLogs = do
-    Git.checkout (LocalBranch ontoBranchName)
+    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
     if isDryRun options proposal
     then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs) ProposalSuccessEmail
     else do
@@ -367,7 +370,7 @@ attemptBranch serverId currentState options logDir proposalBranch proposal = do
     -- branch. (e.g. proposal called 'master' with onto=master)
 
     -- sync local onto with remote
-    Git.checkout (LocalBranch ontoBranchName)
+    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
     finalBase <- Git.currentRef
 
@@ -392,7 +395,7 @@ attemptBranch serverId currentState options logDir proposalBranch proposal = do
             inProgressBranchName = mkBranchName inProgressProposalName
         eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack inProgressProposalName
 
-        Git.checkout proposalBranch
+        Git.checkout $ RefBranch proposalBranch
 
         withNewBranch inProgressBranchName $ do
             eprint "Deleting proposal branch..."
@@ -400,7 +403,7 @@ attemptBranch serverId currentState options logDir proposalBranch proposal = do
 
             -- go back to 'onto', decide whether to create a merge commit on
             -- top (if we should merge ff only)
-            Git.checkout (LocalBranch ontoBranchName)
+            Git.checkout (RefBranch $ LocalBranch ontoBranchName)
 
             isMerge <- Git.isMergeCommit (RefBranch niceBranch)
             let mergeFF =
@@ -417,7 +420,7 @@ attemptBranch serverId currentState options logDir proposalBranch proposal = do
             -- this so that the prepush script will see itself running on a
             -- branch with the name the user gave to this proposal, and not
             -- the onto branch's name.
-            Git.checkout niceBranch
+            Git.checkout (RefBranch niceBranch)
             Git.reset Git.ResetHard (RefBranch $ LocalBranch ontoBranchName)
 
             -- DO IT!
@@ -435,7 +438,7 @@ attemptBranch serverId currentState options logDir proposalBranch proposal = do
 
             transitionProposal options finalBase proposal prepushLogs
 
-            Git.checkout (LocalBranch ontoBranchName)
+            Git.checkout (RefBranch $ LocalBranch ontoBranchName)
             Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
 
             eprint $ "Finished handling proposal " <> formatProposal proposal

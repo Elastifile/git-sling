@@ -134,8 +134,8 @@ clone source target depth hash' =
          ])
     >> pure ()
 
-checkout :: Branch -> EShell ()
-checkout branch = git ["checkout", branchFullName branch] >> pure ()
+checkout :: Ref -> EShell ()
+checkout ref = git ["checkout", refName ref] >> pure ()
 
 data ResetType = ResetHard | ResetSoft | ResetMixed
     deriving (Show, Eq, Ord)
