@@ -284,6 +284,7 @@ withNewBranch b act = do
             Git.checkout currentRef
             deleteLocalAndRemote b
     res <- act `catchError` (\e -> cleanup >> throwError e)
+    cleanup
     return res
 
 withLocalBranch :: Git.BranchName -> EShell () -> EShell ()
@@ -457,7 +458,6 @@ attemptBranch serverId currentState options logDir proposalBranch proposal = do
             when jobTaken $ do
                 sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
                 runAttempt currentState options logDir proposal finalBase ontoBranchName niceBranch mergeFF
-                deleteLocalAndRemote inProgressBranchName
 
 usage :: String
 usage = List.intercalate "\n"
