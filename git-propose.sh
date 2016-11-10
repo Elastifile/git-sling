@@ -158,7 +158,7 @@ git check-ref-format refs/heads/$ONTO_BRANCH > /dev/null || abort_bad_name
 git branch -r | grep $ONTO_BRANCH > /dev/null || abort_bad_name
 
 git describe --dirty --all | grep -E ".*-dirty$"  > /dev/null && abort_unclean
-PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD | tr / _)
 
 git branch --merged HEAD -r | grep " *origin/$ONTO_BRANCH\$"  > /dev/null || abort_not_rebased
 BASE_COMMIT="$(git log -1 origin/$ONTO_BRANCH --format=%h)"
