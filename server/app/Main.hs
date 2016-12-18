@@ -736,4 +736,5 @@ main = runEShell $ do
         CommandTypeList pollOptions -> do
             allProposals <- getProposals
             let proposals = filter (shouldConsiderProposal serverId pollOptions . snd) allProposals
-            forM_ proposals (eprint . formatProposal . snd)
+            forM_ proposals $ \(_branch, proposal) -> do
+                eprint (formatProposal proposal <> " " <> formatEmail (proposalEmail proposal))
