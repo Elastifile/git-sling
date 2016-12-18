@@ -3,7 +3,7 @@
 {-# LANGUAGE TupleSections     #-}
 module Main where
 
-import           Control.Monad (when, unless, join, void)
+import           Control.Monad (when, unless, join, void, forM_)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Lazy as LBS
@@ -21,7 +21,7 @@ import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..), branchName,
                                                 fromBranchName, mkBranchName)
 import qualified Sling.Git as Git
-import           Sling.Lib                     (EShell, Email (..), abort, eview, eproc,
+import           Sling.Lib                     (EShell, Email (..), abort, eproc,
                                                 eprocsIn, eprocsL, formatEmail, eprint,
                                                 ignoreError, runEShell, fromHash, natInt, fromNatInt)
 import           Sling.Proposal
@@ -62,8 +62,8 @@ pollingInterval = 1000000 * 10
 encodeFP :: FilePath -> T.Text
 encodeFP = T.pack . BS8.unpack . FP.encode
 
-runPrepush :: PrepushLogs -> [String] -> Ref -> Ref -> EShell ()
-runPrepush (PrepushLogs logDir logFile) cmd baseR headR = do
+runPrepush :: PrepushLogs -> PrepushCmd -> Ref -> Ref -> EShell ()
+runPrepush (PrepushLogs logDir logFile) (PrepushCmd cmd) baseR headR = do
     let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
         env_str = "SLING_LOG_DIR=" <> encodeFP logDir
         bashArgs = [ "-o", "pipefail", "-c"
@@ -223,10 +223,10 @@ rejectProposal options proposal reason prepushLogs (msg, err) = do
     Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
     abort "Rejected"
 
-attemptBranchOrAbort :: Text -> IORef CurrentState -> Options -> Branch -> Proposal -> EShell ()
-attemptBranchOrAbort serverId currentState options branch proposal = do
+attemptBranchOrAbort :: Text -> IORef CurrentState -> Options -> PrepushCmd -> Branch -> Proposal -> EShell ()
+attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = do
     dirPath <- FP.decodeString <$> liftIO (createTempDirectory "/tmp" "sling.log")
-    attemptBranch serverId currentState options dirPath branch proposal `catchError` abortAttempt currentState options proposal
+    attemptBranch serverId currentState options prepushCmd dirPath branch proposal `catchError` abortAttempt currentState options proposal
 
 htmlFormatCommit :: Maybe Text -> Git.LogEntry -> H.Html
 htmlFormatCommit urlPrefix l = do
@@ -344,9 +344,9 @@ transitionProposal options newBase proposal prepushLogs =
         Just targetPrefix -> transitionProposalToTarget options newBase proposal targetPrefix prepushLogs
 
 runAttempt ::
-    IORef CurrentState -> Options -> FilePath -> Proposal ->
+    IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Proposal ->
     Ref -> Git.BranchName -> Branch -> Git.MergeFF -> EShell ()
-runAttempt currentState options logDir proposal finalBase ontoBranchName niceBranch mergeFF = do
+runAttempt currentState options prepushCmd logDir proposal finalBase ontoBranchName niceBranch mergeFF = do
     -- go back to 'onto', decide whether to create a merge commit on
     -- top (if we should merge ff only)
     Git.checkout (RefBranch $ LocalBranch ontoBranchName)
@@ -371,7 +371,6 @@ runAttempt currentState options logDir proposal finalBase ontoBranchName niceBra
 
     -- If this fails, reject branch will be created first; then the cleanup of in-progress
     -- branch will delete that one, so we're safe against losing the proposal
-    let prepushCmd = cmdPrepushCommandAnArgs (optProposalMode options)
     runPrepush prepushLogs prepushCmd finalBase finalHead
         `catchError` rejectProposal options proposal "Prepush command failed" (Just prepushLogs)
 
@@ -385,8 +384,8 @@ runAttempt currentState options logDir proposal finalBase ontoBranchName niceBra
     eprint $ "Finished handling proposal " <> formatProposal proposal
 
 
-attemptBranch :: Text -> IORef CurrentState -> Options -> FilePath -> Branch -> Proposal -> EShell ()
-attemptBranch serverId currentState options logDir proposalBranch proposal = do
+attemptBranch :: Text -> IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal -> EShell ()
+attemptBranch serverId currentState options prepushCmd logDir proposalBranch proposal = do
     Git.fetch
     commits <- Git.log (proposalBranchBase proposal) (RefBranch proposalBranch)
 
@@ -457,7 +456,7 @@ attemptBranch serverId currentState options logDir proposalBranch proposal = do
                 ProposalRejected -> error "ASSERTION FAILED! Shouldn't be taking rejected proposal"
             when jobTaken $ do
                 sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
-                runAttempt currentState options logDir proposal finalBase ontoBranchName niceBranch mergeFF
+                runAttempt currentState options prepushCmd logDir proposal finalBase ontoBranchName niceBranch mergeFF
 
 usage :: String
 usage = List.intercalate "\n"
@@ -488,12 +487,15 @@ data Options =
     , optForceDryRun :: Bool
     , optTargetPrefix :: Maybe Prefix
     , optServerId :: ServerId
-    , optProposalMode :: Command
+    , optCommandType :: CommandType
     }
 
-data Command
-    = Command { cmdMode :: PrepushMode
-              , cmdPrepushCommandAnArgs :: [String] }
+data PrepushCmd = PrepushCmd [String]
+
+data CommandType
+    = CommandTypePropose { _cmdMode :: PrepushMode
+                         , _cmdPrepushCommandAnArgs :: PrepushCmd }
+    | CommandTypeList PollOptions
 
 data PrepushMode
     = ProposalModePoll PollOptions
@@ -518,23 +520,25 @@ parseProposalFromCmdLine s =
     parseProposal (T.pack s)
     `catchMaybe` error ("Invalid proposal format: " ++ show s)
 
-prepushCommandArgs :: Parser [String]
-prepushCommandArgs =
+prepushCommandArgs :: Parser PrepushCmd
+prepushCommandArgs = PrepushCmd <$>
     some (argument str
               (metavar "-- PREPUSH COMMAND LINE..." <>
                help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
 
-parseModeBranches :: Parser Command
+parseModeBranches :: Parser CommandType
 parseModeBranches =
     hsubparser
     ( command "proposal" (info
-                          (Command <$>
+                          (CommandTypePropose <$>
                            (ProposalModeSingle .parseProposalFromCmdLine <$>
                                argument str (metavar "PROPOSAL" <>
                                              help "A proposal branch name to handle"))
                            <*> prepushCommandArgs)
                           (fullDesc <> progDesc "Process a single proposal"))
-      <> command "poll" (info (Command
+      <> command "list" (info (CommandTypeList <$> pollOptionsParser)
+                         (fullDesc <> progDesc "List pending proposals"))
+      <> command "poll" (info (CommandTypePropose
                                   <$> (ProposalModePoll <$> pollOptionsParser)
                                   <*> prepushCommandArgs)
                          (fullDesc <> progDesc "Process proposals queued as branches"))
@@ -615,7 +619,7 @@ parser =
                 help "Treat all proposals as dry run (regardless of what they say)")
     <*> optional (prefixOption
                   (long "target-prefix" <>
-                   help "If missing, successful branches are merged (unless dry-run) & deleted. If non-empty, prefix of branches to be used for succesful proposals (branches will not be merged)"))
+                   help "ITypef missing, successful branches are merged (unless dry-run) & deleted. If non-empty, prefix of branches to be used for succesful proposals (branches will not be merged)"))
     <*> (fmap (maybe ServerIdHostName (ServerIdName . T.pack)) <$>
          optional $ strOption
          (long "server-id" <>
@@ -638,8 +642,8 @@ shouldConsiderProposal serverId pollOptions proposal =
     && fromMaybe True ((proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun pollOptions)
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
 
-handleSpecificProposal :: Text -> IORef CurrentState -> Options -> Proposal -> EShell ()
-handleSpecificProposal serverId state options proposal = do
+handleSpecificProposal :: Text -> IORef CurrentState -> Options -> PrepushCmd -> Proposal -> EShell ()
+handleSpecificProposal serverId state options prepushCmd proposal = do
     Git.fetch
     remoteBranches <- Git.remoteBranches
     let proposalBranchName = formatProposal proposal
@@ -648,7 +652,7 @@ handleSpecificProposal serverId state options proposal = do
         [] -> abort $ "Failed to find branch: " <> T.pack (show proposalBranchName)
         [b] -> return b
         _ -> abort $ "Assertion failed: multiple branches matching the same proposal: " <> T.pack (show proposalBranchName)
-    attemptBranchOrAbort serverId state options (uncurry Git.RemoteBranch branch) proposal
+    attemptBranchOrAbort serverId state options prepushCmd (uncurry Git.RemoteBranch branch) proposal
 
 parseProposals :: [Branch] -> [(Branch, Proposal)]
 parseProposals remoteBranches =
@@ -667,10 +671,8 @@ cleanupBranches = do
         <$> Git.localBranches
     mapM_ Git.deleteLocalBranch slingLocalBranches
 
-serverPoll :: Text -> IORef CurrentState -> Options -> PollOptions -> EShell Bool
-serverPoll serverId currentState options pollOptions = do
-    cleanupBranches
-    Git.fetch
+serverPoll :: Text -> IORef CurrentState -> Options -> PrepushCmd -> PollOptions -> EShell Bool
+serverPoll serverId currentState options prepushCmd pollOptions = do
     allProposals <- getProposals
 
     eprint . T.pack $ mconcat $ List.intersperse "\n\t"
@@ -699,16 +701,16 @@ serverPoll serverId currentState options pollOptions = do
             eprint "Done - have nothing to do."
             return False
         (topProposal:_) -> do
-            (uncurry $ attemptBranchOrAbort serverId currentState options) topProposal
+            (uncurry $ attemptBranchOrAbort serverId currentState options prepushCmd) topProposal
             liftIO $ clearCurrentProposal currentState
             eprint . T.pack $ "Done proposal: " ++ show topProposal
             return True
 
-serverLoop :: Text -> IORef CurrentState -> Options -> PollOptions -> EShell ()
-serverLoop serverId currentState options pollOptions = do
+serverLoop :: Text -> IORef CurrentState -> Options -> PrepushCmd -> PollOptions -> EShell ()
+serverLoop serverId currentState options prepushCmd pollOptions = do
     void $ liftIO $ forkServer (optWebServerPort options) (readIORef currentState)
     let go = do
-            havePending <- serverPoll serverId currentState options pollOptions
+            havePending <- serverPoll serverId currentState options prepushCmd pollOptions
             case (optPollMode pollOptions) of
                 PollModeOneShot -> return ()
                 PollModeAllQueued -> if havePending then go else return ()
@@ -718,7 +720,7 @@ serverLoop serverId currentState options pollOptions = do
     go
 
 main :: IO ()
-main = runEShell $ eview $ do
+main = runEShell $ do
     options <- liftIO parseOpts
     currentState <- liftIO $ newIORef emptyCurrentState
     hostName <- liftIO getFullHostName
@@ -726,6 +728,12 @@ main = runEShell $ eview $ do
             ServerIdHostName -> T.pack hostName
             ServerIdName serverIdName -> serverIdName
 
-    case cmdMode (optProposalMode options) of
-        ProposalModePoll pollOptions -> serverLoop serverId currentState options pollOptions
-        ProposalModeSingle proposal -> handleSpecificProposal serverId currentState options proposal
+    cleanupBranches
+    Git.fetch
+    case optCommandType options of
+        CommandTypePropose (ProposalModePoll pollOptions) prepushCmd -> serverLoop serverId currentState options prepushCmd pollOptions
+        CommandTypePropose (ProposalModeSingle proposal) prepushCmd -> handleSpecificProposal serverId currentState options prepushCmd proposal
+        CommandTypeList pollOptions -> do
+            allProposals <- getProposals
+            let proposals = filter (shouldConsiderProposal serverId pollOptions . snd) allProposals
+            forM_ proposals (eprint . formatProposal . snd)

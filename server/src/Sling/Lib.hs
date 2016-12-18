@@ -10,7 +10,7 @@ import Data.Monoid ((<>))
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text                  as T
-import           Turtle                     (ExitCode (..), Pattern, Shell, echo,
+import           Turtle                     (ExitCode (..), Pattern, Shell,
                                              anyChar, empty, match, procStrict, proc,
                                              satisfy, sh, some, view)
 
@@ -21,13 +21,21 @@ import qualified System.IO
 
 type EShell a = EitherT (Text, ExitCode) Shell a
 
+eprintTo :: System.IO.Handle -> Text -> EShell ()
+eprintTo x t = liftIO $ do
+    System.IO.hPutStrLn x (T.unpack t)
+    System.IO.hFlush x
+
 eprint :: Text -> EShell ()
-eprint t = echo t >> liftIO (System.IO.hFlush System.IO.stdout)
+eprint = eprintTo System.IO.stdout
+
+estderr :: Text -> EShell ()
+estderr = eprintTo System.IO.stderr
 
 eproc :: Text -> [Text] -> Shell Text -> EShell ()
 eproc cmd args input = do
     let cmdStr = T.intercalate " " (cmd:args)
-    eprint $ "$ " <> cmdStr
+    estderr $ "$ " <> cmdStr
     exitCode <- proc cmd args input
     case exitCode of
         ExitSuccess -> pure ()
@@ -36,7 +44,7 @@ eproc cmd args input = do
 eprocsIn :: Text -> [Text] -> Shell Text -> EShell Text
 eprocsIn cmd args input = do
     let cmdStr = T.intercalate " " (cmd:args)
-    eprint $ "$ " <> cmdStr
+    estderr $ "$ " <> cmdStr
     (exitCode, t) <- procStrict cmd args input
     case exitCode of
         ExitSuccess -> pure t
@@ -69,7 +77,7 @@ safe f xs = Just $ f xs
 
 abort :: Text -> EShell a
 abort msg = do
-    eprint msg
+    estderr msg
     left (msg, ExitFailure 1)
 
 runEShell :: EShell a -> IO ()
