@@ -475,6 +475,7 @@ data PollOptions =
     , optBranchFilterNoDryRun :: Maybe String
     , optSourcePrefix :: Maybe Prefix
     , optPollMode :: PollMode
+    , optNoConcurrent :: Bool
     }
 
 
@@ -597,6 +598,8 @@ pollOptionsParser =
               (long "all" <>
                help "(Default) Process all pending proposals and then quit; if nothing to process, quit immediately"))
         )
+    <*> switch ( long "no-concurrent" <>
+                  help "Prevent concurrent jobs: don't match any proposal, if there's an in-progress proposal matching the filter" )
 
 
 parser :: Parser Options
@@ -628,14 +631,9 @@ parser =
     <*> parseModeBranches
 
 
-shouldConsiderProposal :: Text -> PollOptions -> Proposal -> Bool
-shouldConsiderProposal serverId pollOptions proposal =
-    (case proposalStatus proposal of
-         ProposalProposed -> True
-         ProposalInProgress proposalServerId -> proposalServerId == serverId
-         ProposalRejected -> False
-    )
-    && (optSourcePrefix pollOptions == proposalPrefix proposal)
+shouldConsiderProposal :: PollOptions -> Proposal -> Bool
+shouldConsiderProposal pollOptions proposal =
+    (optSourcePrefix pollOptions == proposalPrefix proposal)
     && fromMaybe True (checkFilter <$> optBranchFilterAll pollOptions)
     && fromMaybe True (not . checkFilter <$> optBranchExcludeFilterAll pollOptions)
     && fromMaybe True (((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun pollOptions)
@@ -663,6 +661,28 @@ parseProposals remoteBranches =
 getProposals :: EShell [(Branch, Proposal)]
 getProposals = parseProposals . map (uncurry Git.RemoteBranch) <$> Git.remoteBranches
 
+getFilteredProposals :: Text -> PollOptions -> EShell [(Branch, Proposal)]
+getFilteredProposals serverId pollOptions = do
+    allProposals <- getProposals
+    let filteredProposals = filter (shouldConsiderProposal pollOptions . snd) allProposals
+
+        forThisServer proposal =
+            case proposalStatus proposal of
+                ProposalProposed -> True
+                ProposalInProgress proposalServerId -> proposalServerId == serverId
+                ProposalRejected -> False
+        proposalsForThisServer = filter (forThisServer . snd) filteredProposals
+
+        isOnOtherServer proposal =
+            case proposalStatus proposal of
+                ProposalProposed -> False
+                ProposalInProgress proposalServerId -> proposalServerId /= serverId
+                ProposalRejected -> False
+
+    if (optNoConcurrent pollOptions) && (any (isOnOtherServer . snd) filteredProposals)
+        then return []
+        else return proposalsForThisServer
+
 cleanupBranches :: EShell ()
 cleanupBranches = do
     slingLocalBranches <- map (Git.mkBranchName . formatProposal)
@@ -674,6 +694,7 @@ cleanupBranches = do
 serverPoll :: Text -> IORef CurrentState -> Options -> PrepushCmd -> PollOptions -> EShell Bool
 serverPoll serverId currentState options prepushCmd pollOptions = do
     allProposals <- getProposals
+    proposals <- getFilteredProposals serverId pollOptions
 
     eprint . T.pack $ mconcat $ List.intersperse "\n\t"
         [ "Filters: "
@@ -688,9 +709,7 @@ serverPoll serverId currentState options prepushCmd pollOptions = do
         , "Target: " <> maybe "" (T.unpack . prefixToText) (optTargetPrefix options)
         ]
 
-    let proposals = filter (shouldConsiderProposal serverId pollOptions . snd) allProposals
-
-        showProposals ps = List.intercalate "\n\t" (map (show . branchName . fst) ps)
+    let showProposals ps = List.intercalate "\n\t" (map (show . branchName . fst) ps)
 
     eprint . T.pack $ "All proposals (before filtering):\n\t" <> showProposals allProposals
     eprint . T.pack $ "Going to attempt proposals:\n\t" <> showProposals proposals
@@ -734,7 +753,6 @@ main = runEShell $ do
         CommandTypePropose (ProposalModePoll pollOptions) prepushCmd -> serverLoop serverId currentState options prepushCmd pollOptions
         CommandTypePropose (ProposalModeSingle proposal) prepushCmd -> handleSpecificProposal serverId currentState options prepushCmd proposal
         CommandTypeList pollOptions -> do
-            allProposals <- getProposals
-            let proposals = filter (shouldConsiderProposal serverId pollOptions . snd) allProposals
+            proposals <- getFilteredProposals serverId pollOptions
             forM_ proposals $ \(_branch, proposal) -> do
                 eprint (formatProposal proposal <> " " <> formatEmail (proposalEmail proposal))
