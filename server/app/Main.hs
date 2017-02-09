@@ -703,6 +703,9 @@ serverPoll serverId currentState options prepushCmd pollOptions = do
         , maybe "" ("dry run branch filter: " <> ) (optBranchFilterDryRun pollOptions)
         , maybe "" ("non-dry-run branch filter: " <> ) (optBranchFilterNoDryRun pollOptions)
         ]
+
+    eprint . T.pack $ "Allow concurrent: " <> if optNoConcurrent pollOptions then "No" else "Yes"
+
     eprint . T.pack $ mconcat $ List.intersperse "\n\t"
         [ "Prefixes: "
         , "Source: " <> maybe "" (T.unpack . prefixToText) (optSourcePrefix pollOptions)
