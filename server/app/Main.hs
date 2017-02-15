@@ -370,6 +370,7 @@ runAttempt currentState options prepushCmd logDir proposal finalBase finalHead o
 
 attemptBranch :: Text -> IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal -> EShell ()
 attemptBranch serverId currentState options prepushCmd logDir proposalBranch proposal = do
+    cleanupBranches -- remove leftover branches
     Git.fetch
     commits <- Git.log (proposalBranchBase proposal) (RefBranch proposalBranch)
 
@@ -689,7 +690,7 @@ cleanupBranches = do
         . catMaybes
         . map (parseProposal . Git.fromBranchName)
         <$> Git.localBranches
-    mapM_ Git.deleteLocalBranch slingLocalBranches
+    mapM_ (\x -> (Git.deleteLocalBranch x) & ignoreError) slingLocalBranches
 
 serverPoll :: Text -> IORef CurrentState -> Options -> PrepushCmd -> PollOptions -> EShell Bool
 serverPoll serverId currentState options prepushCmd pollOptions = do
@@ -750,7 +751,6 @@ main = runEShell $ do
             ServerIdHostName -> T.pack hostName
             ServerIdName serverIdName -> serverIdName
 
-    cleanupBranches
     Git.fetch
     case optCommandType options of
         CommandTypePropose (ProposalModePoll pollOptions) prepushCmd -> serverLoop serverId currentState options prepushCmd pollOptions
