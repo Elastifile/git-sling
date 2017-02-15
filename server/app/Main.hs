@@ -23,7 +23,7 @@ import           Sling.Git                     (Branch (..), Ref (..),
 import qualified Sling.Git as Git
 import           Sling.Lib                     (EShell, Email (..), abort, eproc,
                                                 eprocsIn, eprocsL, formatEmail, eprint,
-                                                ignoreError, runEShell, fromHash, natInt, fromNatInt)
+                                                ignoreError, runEShell, fromHash)
 import           Sling.Proposal
 import           Sling.Web (forkServer, CurrentState(..), emptyCurrentState)
 import           Text.Regex.Posix ((=~))
@@ -305,12 +305,9 @@ withLocalBranch name act = do
 
 transitionProposalToTarget :: Options -> Git.Ref -> Proposal -> Prefix -> PrepushLogs -> EShell ()
 transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = do
-    allProposals <- getProposals
     shortBase <- Git.shortenRef newBase
-    let maxQueueIndex = maximum $ map (fromNatInt . proposalQueueIndex . snd) allProposals
-        targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix
+    let targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix
                                                        , proposalBranchBase = shortBase
-                                                       , proposalQueueIndex = natInt $ maxQueueIndex + 1
                                                        , proposalStatus = ProposalProposed }
         targetBranchName = mkBranchName targetProposalName
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack targetProposalName
