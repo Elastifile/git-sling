@@ -345,24 +345,8 @@ transitionProposal options newBase proposal prepushLogs =
 
 runAttempt ::
     IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Proposal ->
-    Ref -> Git.BranchName -> Branch -> Git.MergeFF -> EShell ()
-runAttempt currentState options prepushCmd logDir proposal finalBase ontoBranchName niceBranch mergeFF = do
-    -- go back to 'onto', decide whether to create a merge commit on
-    -- top (if we should merge ff only)
-    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
-
-    Git.merge mergeFF niceBranch
-    when (mergeFF == Git.MergeNoFF) $
-        Git.commitAmend (proposalEmail proposal) Git.RefHead
-
-    finalHead <- Git.currentRef
-
-    -- Fast-forward the work branch to match the merged 'onto' we do
-    -- this so that the prepush script will see itself running on a
-    -- branch with the name the user gave to this proposal, and not
-    -- the onto branch's name.
-    Git.checkout (RefBranch niceBranch)
-    Git.reset Git.ResetHard (RefBranch $ LocalBranch ontoBranchName)
+    Ref -> Ref -> Git.BranchName -> EShell ()
+runAttempt currentState options prepushCmd logDir proposal finalBase finalHead ontoBranchName = do
 
     -- DO IT!
     logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
@@ -440,12 +424,28 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
             inProgressBranchName = mkBranchName inProgressProposalName
         eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack inProgressProposalName
 
-        Git.checkout $ RefBranch proposalBranch
         isMerge <- Git.isMergeCommit (RefBranch niceBranch)
         let mergeFF =
                 if isMerge || (length commits == 1)
                 then Git.MergeFFOnly
                 else Git.MergeNoFF
+
+        -- go back to 'onto', decide whether to create a merge commit on
+        -- top (if we should merge ff only)
+        Git.checkout (RefBranch $ LocalBranch ontoBranchName)
+
+        Git.merge mergeFF niceBranch
+        when (mergeFF == Git.MergeNoFF) $
+            Git.commitAmend (proposalEmail proposal) Git.RefHead
+
+        finalHead <- Git.currentRef
+
+        -- Fast-forward the work branch to match the merged 'onto' we do
+        -- this so that the prepush script will see itself running on a
+        -- branch with the name the user gave to this proposal, and not
+        -- the onto branch's name.
+        Git.checkout (RefBranch niceBranch)
+        Git.reset Git.ResetHard finalHead
 
         withNewBranch inProgressBranchName $ do
             eprint "Deleting proposal branch..."
@@ -456,7 +456,7 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
                 ProposalRejected -> error "ASSERTION FAILED! Shouldn't be taking rejected proposal"
             when jobTaken $ do
                 sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
-                runAttempt currentState options prepushCmd logDir proposal finalBase ontoBranchName niceBranch mergeFF
+                runAttempt currentState options prepushCmd logDir proposal finalBase finalHead ontoBranchName
 
 usage :: String
 usage = List.intercalate "\n"
