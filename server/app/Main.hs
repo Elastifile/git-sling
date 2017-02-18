@@ -305,10 +305,14 @@ withLocalBranch name act = do
 
 transitionProposalToTarget :: Options -> Git.Ref -> Proposal -> Prefix -> PrepushLogs -> EShell ()
 transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = do
-    shortBase <- Git.shortenRef newBase
-    let targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix
-                                                       , proposalBranchBase = shortBase
-                                                       , proposalStatus = ProposalProposed }
+    Git.RefHash shortBaseHash <- Git.shortenRef newBase
+    let moveBranch = case proposalMove proposal of
+                       MoveBranchOnto _oldBase -> MoveBranchOnto shortBaseHash
+                       MoveBranchProposed name -> MoveBranchProposed name
+
+        targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix
+                                                       , proposalMove = moveBranch
+                                                       , proposalStatus = proposalStatus proposal }
         targetBranchName = mkBranchName targetProposalName
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack targetProposalName
     when (targetBranchName == ontoBranchName)
@@ -321,24 +325,32 @@ transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = d
     where
         ontoBranchName = proposalBranchOnto proposal
 
-transitionProposalToCompletion :: Options -> Proposal -> PrepushLogs -> EShell ()
-transitionProposalToCompletion options proposal prepushLogs = do
-    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
+transitionProposalToCompletion :: Options -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
+transitionProposalToCompletion options finalHead proposal prepushLogs = do
     if isDryRun options proposal
     then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs) ProposalSuccessEmail
     else do
-        -- TODO ensure not dirty
-        eprint $ "Updating: " <> fromBranchName ontoBranchName
-        Git.push -- TODO -u origin master
+        case proposalMove proposal of
+            MoveBranchOnto _baseRef -> do
+                eprint $ "Updating: " <> fromBranchName ontoBranchName
+                Git.checkout (RefBranch $ LocalBranch ontoBranchName)
+                Git.push
+            MoveBranchProposed name  -> do
+                eprint $ "Updating: " <> fromBranchName name
+                Git.deleteLocalBranch name & ignoreError
+                Git.checkout (RefBranch $ LocalBranch name)
+                Git.reset Git.ResetHard finalHead
+                Git.pushForceWithLease
+
         sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs) ProposalSuccessEmail
     where
         ontoBranchName = proposalBranchOnto proposal
 
-transitionProposal :: Options -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
-transitionProposal options newBase proposal prepushLogs =
+transitionProposal :: Options -> Git.Ref -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
+transitionProposal options finalBase finalHead proposal prepushLogs =
     case optTargetPrefix options of
-        Nothing -> transitionProposalToCompletion options proposal prepushLogs
-        Just targetPrefix -> transitionProposalToTarget options newBase proposal targetPrefix prepushLogs
+        Nothing -> transitionProposalToCompletion options finalHead proposal prepushLogs
+        Just targetPrefix -> transitionProposalToTarget options finalBase proposal targetPrefix prepushLogs
 
 runAttempt ::
     IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Proposal ->
@@ -355,9 +367,10 @@ runAttempt currentState options prepushCmd logDir proposal finalBase finalHead o
     runPrepush prepushLogs prepushCmd finalBase finalHead
         `catchError` rejectProposal options proposal "Prepush command failed" (Just prepushLogs)
 
+    -- TODO ensure not dirty
     eprint "Prepush command ran succesfully"
 
-    transitionProposal options finalBase proposal prepushLogs
+    transitionProposal options finalBase finalHead proposal prepushLogs
 
     Git.checkout (RefBranch $ LocalBranch ontoBranchName)
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
@@ -369,7 +382,13 @@ attemptBranch :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> File
 attemptBranch serverId currentState options prepushCmd logDir proposalBranch proposal = do
     cleanupBranches -- remove leftover branches
     Git.fetch
-    commits <- Git.log (proposalBranchBase proposal) (RefBranch proposalBranch)
+    let ontoBranchName = proposalBranchOnto proposal
+        remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
+        (baseRef, headRef) =
+            case proposalMove proposal of
+              MoveBranchOnto base -> (Git.RefHash base, RefBranch proposalBranch)
+              MoveBranchProposed name -> (remoteOnto, Git.RefBranch $ Git.RemoteBranch origin name)
+    commits <- Git.log baseRef headRef
 
     liftIO $ setStateProposal currentState proposal commits
 
@@ -385,8 +404,6 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
 
     let niceBranchName = proposalName proposal
         niceBranch = LocalBranch niceBranchName
-        ontoBranchName = proposalBranchOnto proposal
-        remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
         verifyRemoteBranch rb =
             unless (rb `elem` remoteBranches)
             $ abort $ "No remote branch: " <> T.pack (show rb)
@@ -403,18 +420,16 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
 
     -- create local work branch, reset to proposed
     withLocalBranch niceBranchName $ do
-        Git.reset Git.ResetHard (RefBranch proposalBranch)
+        Git.reset Git.ResetHard headRef
 
         -- rebase work onto target
-        Git.rebase Git.Rebase { Git.rebaseBase = proposalBranchBase proposal,
+        Git.rebase Git.Rebase { Git.rebaseBase = baseRef,
                                 Git.rebaseOnto = remoteOnto,
-                                Git.rebasePolicy = Git.RebaseDropMerges
+                                Git.rebasePolicy = case proposalMove proposal of
+                                                     MoveBranchOnto{} -> Git.RebaseDropMerges
+                                                     MoveBranchProposed{} -> Git.RebaseKeepMerges
                               }
             `catchError` rejectProposal options proposal "Rebase failed" Nothing
-
-        eprint "Commits (after rebase): "
-        commitsAfter <- Git.log (proposalBranchBase proposal) (RefBranch proposalBranch)
-        liftIO $ mapM_ print commitsAfter
 
         -- rebase succeeded, we can now take this job
 
@@ -422,34 +437,37 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
             inProgressBranchName = mkBranchName inProgressProposalName
         eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack inProgressProposalName
 
-        isMerge <- Git.isMergeCommit (RefBranch niceBranch)
-        let mergeFF =
-                if isMerge || (length commits == 1)
-                then Git.MergeFFOnly
-                else Git.MergeNoFF
+        case proposalMove proposal of
+            MoveBranchOnto{} -> do
+              isMerge <- Git.isMergeCommit (RefBranch niceBranch)
+              let mergeFF =
+                      if isMerge || (length commits == 1)
+                      then Git.MergeFFOnly
+                      else Git.MergeNoFF
+              -- go back to 'onto', decide whether to create a merge commit on
+              -- top (if we should merge ff only)
+              Git.checkout (RefBranch $ LocalBranch ontoBranchName)
+              Git.merge mergeFF niceBranch
+              when (mergeFF == Git.MergeNoFF) $
+                  Git.commitAmend (proposalEmail proposal) Git.RefHead
+              newHead <- Git.currentRef
+              -- Fast-forward the work branch to match the merged 'onto' we do
+              -- this so that the prepush script will see itself running on a
+              -- branch with the name the user gave to this proposal, and not
+              -- the onto branch's name.
+              Git.checkout (RefBranch niceBranch)
+              Git.reset Git.ResetHard newHead
 
-        -- go back to 'onto', decide whether to create a merge commit on
-        -- top (if we should merge ff only)
-        Git.checkout (RefBranch $ LocalBranch ontoBranchName)
-
-        Git.merge mergeFF niceBranch
-        when (mergeFF == Git.MergeNoFF) $
-            Git.commitAmend (proposalEmail proposal) Git.RefHead
+            MoveBranchProposed{} -> return () -- do nothing
 
         finalHead <- Git.currentRef
 
-        -- Fast-forward the work branch to match the merged 'onto' we do
-        -- this so that the prepush script will see itself running on a
-        -- branch with the name the user gave to this proposal, and not
-        -- the onto branch's name.
-        Git.checkout (RefBranch niceBranch)
-        Git.reset Git.ResetHard finalHead
-
+        eprint "Switching to (new) in-progress branch"
         withNewBranch inProgressBranchName $ do
             eprint "Deleting proposal branch..."
             jobTaken <- case proposalStatus proposal of
                 ProposalInProgress{} -> return True
-                ProposalProposed -> (Git.deleteBranch proposalBranch >> return True)
+                ProposalProposed{} -> (Git.deleteBranch proposalBranch >> return True)
                     `catchError` (const $ eprint "Can't delete proposal - Other slave took the job? Dropping" >> return False)
                 ProposalRejected -> error "ASSERTION FAILED! Shouldn't be taking rejected proposal"
             when jobTaken $ do
@@ -666,14 +684,14 @@ getFilteredProposals serverId pollOptions = do
 
         forThisServer proposal =
             case proposalStatus proposal of
-                ProposalProposed -> True
+                ProposalProposed{} -> True
                 ProposalInProgress proposalServerId -> proposalServerId == serverId
                 ProposalRejected -> False
         proposalsForThisServer = filter (forThisServer . snd) filteredProposals
 
         isOnOtherServer proposal =
             case proposalStatus proposal of
-                ProposalProposed -> False
+                ProposalProposed{} -> False
                 ProposalInProgress proposalServerId -> proposalServerId /= serverId
                 ProposalRejected -> False
 

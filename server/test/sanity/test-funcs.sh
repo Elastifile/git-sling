@@ -44,8 +44,8 @@ run_cmd_fail() {
 run_cmd() {
     local cmd="$@"
     local logfile=$(mktemp)
-    echo "> $cmd"
-    $cmd &> $logfile && rm $logfile || (echo "^ Command failed $?, log=$logfile"; exit 1)
+    echo "> $cmd > $logfile"
+    $cmd &> $logfile || (echo "^ Command failed $?, log=$logfile"; exit 1)
 }
 
 logit() {
@@ -73,7 +73,8 @@ add_prepush() {
 }
 
 add_commit_file() {
-    local filename=$(basename "$1")
+    local filename
+    filename=$(basename "$1")
     local content="${2:-bla}"
     echo "$content" > "$filename"
     logit add "$filename"

@@ -5,7 +5,7 @@ import           Data.Text           (Text)
 import qualified Data.Text           as T
 import qualified Sling.Git           as Git
 import           Sling.Lib           (Email (..), NatInt, formatSepEmail,
-                                      fromNatInt, fromNonEmptyText, hash,
+                                      fromNatInt, fromNonEmptyText, Hash, fromHash, hash,
                                       natInt, nonEmptyText, singleMatch,
                                       NonEmptyText, someText)
 import           Control.Monad       (void)
@@ -39,11 +39,16 @@ prefixToText = fromNonEmptyText . fromPrefix
 prefixFromText :: Text -> Prefix
 prefixFromText = Prefix . nonEmptyText
 
+data MoveBranch
+    = MoveBranchProposed { _moveBranchName :: Git.BranchName }
+    | MoveBranchOnto { _moveOntoRebaseFrom :: Hash }
+      deriving (Show, Eq, Ord)
+
 data Proposal
     = Proposal
       { proposalEmail      :: Email
       , proposalName       :: Git.BranchName -- not really a branch, but it will be used as a branch name
-      , proposalBranchBase :: Git.Ref
+      , proposalMove       :: MoveBranch
       , proposalBranchOnto :: Git.BranchName
       , proposalQueueIndex :: NatInt
       , proposalStatus     :: ProposalStatus
@@ -67,6 +72,16 @@ formatBranchName = T.replace "/" "//" . Git.fromBranchName
 branchNamePat :: Pattern Git.BranchName
 branchNamePat = Git.mkBranchName . T.replace "//" "/" . T.pack <$> some (notChar '#')
 
+moveOntoPrefix :: Text
+moveOntoPrefix = "base"
+
+moveProposedPrefix :: Text
+moveProposedPrefix = "rebase"
+
+formatMoveBranch :: MoveBranch -> Text
+formatMoveBranch (MoveBranchOnto ref) = moveOntoPrefix <> "/" <> fromHash ref
+formatMoveBranch (MoveBranchProposed name) = moveProposedPrefix <> "/" <> (formatBranchName name)
+
 formatProposal :: Proposal -> Text
 formatProposal p = "sling/" <> prefix <> "/" <> suffix
     where
@@ -78,22 +93,13 @@ formatProposal p = "sling/" <> prefix <> "/" <> suffix
         suffix =
             T.pack (show . fromNatInt . proposalQueueIndex $ p)
             <> "/" <> formatBranchName (proposalName p)
-            <> "/base/" <> formatRef (proposalBranchBase p)
-            <> "/" <> (if proposalDryRun p then dryRunOntoPrefix else ontoPrefix)  <> "/"
-            <> formatBranchName (proposalBranchOnto p)
+            <> "/" <> formatMoveBranch (proposalMove p)
+            <> "/" <> (if proposalDryRun p then dryRunOntoPrefix else ontoPrefix)
+            <> "/" <> formatBranchName (proposalBranchOnto p)
             <> "/user/" <> formatSepEmail "-at-" (proposalEmail p)
 
-refPat :: Pattern Git.Ref
-refPat =
-    ((text "HEAD" >> pure Git.RefHead)
-     <|> (flip Git.RefParent <$> ((natInt <$> decimal) <* text "#") <*> refPat))
-     <|> (Git.RefHash . hash . T.pack <$> some hexDigit)
-     <|> (text "R-" *> (Git.RefBranch <$> remoteBranchPat))
-     <|> (text "L-" *> (Git.RefBranch . Git.LocalBranch <$> branchNamePat))
-    where
-        remoteBranchPat =
-            Git.RemoteBranch <$> (Git.Remote . nonEmptyText . T.pack <$> some (notChar '/')) <*> (char '/' *> branchNamePat)
-
+hashPat :: Pattern Hash
+hashPat = hash . T.pack <$> some hexDigit
 
 formatRef :: Git.Ref -> Text
 formatRef (Git.RefParent r n) = (T.pack . show $ fromNatInt n) <> "#" <> formatRef r
@@ -103,6 +109,10 @@ formatRef r = Git.refName r
 
 fieldSep :: Pattern ()
 fieldSep = void $ char '/'
+
+movePat :: Pattern MoveBranch
+movePat = (text moveOntoPrefix *> fieldSep *> (MoveBranchOnto <$> hashPat))
+    <|> (text moveProposedPrefix *> fieldSep *> (MoveBranchProposed <$> branchNamePat))
 
 proposalPat :: Pattern Proposal
 proposalPat = do
@@ -121,9 +131,7 @@ proposalPat = do
     name <- branchNamePat
     fieldSep
 
-    _ <- text "base"
-    fieldSep
-    baseRef <- refPat
+    moveBranch <- movePat
     fieldSep
 
     isDryRun <- (text ontoPrefix *> pure False) <|> (text dryRunOntoPrefix *> pure True)
@@ -137,7 +145,7 @@ proposalPat = do
     email <- emailPat "-at-"
 
     _ <- eof
-    return $ Proposal email name baseRef ontoRef index ps isDryRun prefix
+    return $ Proposal email name moveBranch ontoRef index ps isDryRun prefix
 
 parseProposal :: Text -> Maybe Proposal
 parseProposal = singleMatch proposalPat

@@ -38,8 +38,9 @@ check_for_upgrade() {
 
 show_usage() {
     echo | cat <<EOF
-Usage: git propose <merge branch> [--dry-run] [--no-upgrade-check] [--vip] [--source=SOURCE_PREFIX]
+Usage: git propose <target branch> [--rebase] [--dry-run] [--no-upgrade-check] [--vip] [--source=SOURCE_PREFIX]
 
+ --rebase             Propose to just rebase the current branch instead of merging it into the target branch
  --dry-run            Don't actually merge the changes; just check that rebase + prepush passes.
  --(no-)upgrade-check Enable/disable automatic checking for a new version of git-sling
  --vip                Give this proposal a higher priority than normal (use with discretion).
@@ -105,9 +106,12 @@ ONTO_PREFIX="onto"
 ONTO_BRANCH=""
 IS_VIP=false
 SOURCE_PREFIX=""
-
+MOVE_BRANCH_MODE="base"
 for arg in "$@"; do
     case $arg in
+        --rebase)
+            MOVE_BRANCH_MODE="rebase"
+            ;;
         --dry-run)
             ONTO_PREFIX="dry-run-onto"
             IS_DRY_RUN=true
@@ -159,8 +163,6 @@ git branch -r | grep $ONTO_BRANCH > /dev/null || abort_bad_name
 
 git describe --dirty --all | grep -E ".*-dirty$"  > /dev/null && abort_unclean
 PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD | tr / _)
-
-git branch --merged HEAD -r | grep " *origin/$ONTO_BRANCH\$"  > /dev/null || abort_not_rebased
 BASE_COMMIT="$(git log -1 origin/$ONTO_BRANCH --format=%h)"
 
 # The index here gives an approximate ordering (because it isn't
@@ -175,7 +177,7 @@ else
                    ${SCRIPT_DIR}/sed.sh -r "s,.*$PROPOSED_PREFIX/([0-9]+).*,\1,g" | \
                    sort -g | \
                    tail -1)
-    NEXT_INDEX=$(($INDEX + 1))
+    NEXT_INDEX=$((INDEX + 1))
 fi
 git config user.email | grep "\-at\-" && \
     ( echo "your email contains '-at-' /";
@@ -186,9 +188,15 @@ EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
 escape_branch() {
     echo "$1" | sed 's,/,//,g'
 }
-
-MOVE_BRANCH_MODE="base"
-MOVE_BRANCH_PARAM="${BASE_COMMIT}"
+if [ "$MOVE_BRANCH_MODE" == "base" ]; then
+    if ! git branch --merged HEAD -r | grep " *origin/$ONTO_BRANCH\$"  > /dev/null ;
+    then
+        abort_not_rebased
+    fi
+    MOVE_BRANCH_PARAM="$BASE_COMMIT"
+else
+    MOVE_BRANCH_PARAM="$(escape_branch $PROPOSED_BRANCH)"
+fi
 
 REMOTE_BRANCH="${SLING_PREFIX}/${SOURCE_PREFIX}${PROPOSED_PREFIX}/$NEXT_INDEX/$(escape_branch $PROPOSED_BRANCH)/$MOVE_BRANCH_MODE/$MOVE_BRANCH_PARAM/$ONTO_PREFIX/$(escape_branch $ONTO_BRANCH)/user/$EMAIL"
 

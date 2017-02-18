@@ -88,6 +88,7 @@ exec_test() {
 
 
 exec_test "tests/basic.sh"
+exec_test "tests/rebase.sh"
 exec_test "tests/onto.sh"
 exec_test "tests/dry-run.sh"
 exec_test "tests/over-master.sh"

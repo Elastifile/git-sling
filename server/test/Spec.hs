@@ -94,6 +94,7 @@ instance Arbitrary ProposalStatus where
 derive makeArbitrary ''Proposal
 derive makeArbitrary ''Branch
 derive makeArbitrary ''Ref
+derive makeArbitrary ''MoveBranch
 
 -- ----------------------------------------------------------------------
 

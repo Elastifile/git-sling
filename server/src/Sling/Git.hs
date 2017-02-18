@@ -161,6 +161,9 @@ merge mo branch = git ["merge", optionToText mo, branchFullName branch] >> pure 
 push :: EShell ()
 push = git ["push"] >> pure ()
 
+pushForceWithLease :: EShell ()
+pushForceWithLease = git ["push", "--force-with-lease"] >> pure ()
+
 rebaseAbort :: EShell ()
 rebaseAbort = git ["rebase", "--abort"] >> pure ()
 
