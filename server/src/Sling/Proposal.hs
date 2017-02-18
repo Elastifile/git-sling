@@ -66,11 +66,14 @@ dryRunOntoPrefix = "dry-run-onto"
 proposalPrefixPrefix :: Text
 proposalPrefixPrefix = "prefix-"
 
+slashEscape :: Text
+slashEscape = "/_/"
+
 formatBranchName :: Git.BranchName -> Text
-formatBranchName = T.replace "/" "//" . Git.fromBranchName
+formatBranchName = T.replace "/" slashEscape . Git.fromBranchName
 
 branchNamePat :: Pattern Git.BranchName
-branchNamePat = Git.mkBranchName . T.replace "//" "/" . T.pack <$> some (notChar '#')
+branchNamePat = Git.mkBranchName . T.replace slashEscape "/" . T.pack <$> some (notChar '#')
 
 moveOntoPrefix :: Text
 moveOntoPrefix = "base"
