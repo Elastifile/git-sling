@@ -50,6 +50,15 @@ instance Arbitrary BranchName where
         replicateM l branchChars
     shrink = map (mkBranchName . T.pack) . filter (not . null) . shrink . T.unpack . fromBranchName
 
+
+hostNameChars :: Gen Char
+hostNameChars = elements (['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "-_")
+
+instance Arbitrary ServerId where
+    arbitrary = ServerId . T.pack <$> do
+        l <- choose (1,10)
+        replicateM l hostNameChars
+
 -- Determined 'empirically' :(
 -- too restrictive?
 remoteChars :: Gen Char
@@ -79,9 +88,7 @@ instance Arbitrary ProposalStatus where
     arbitrary = oneof
         [ pure ProposalProposed
         , pure ProposalRejected
-        , ProposalInProgress . T.pack <$> do
-                l <- choose (1,5)
-                replicateM l branchChars
+        , ProposalInProgress <$> arbitrary
         ]
 
 derive makeArbitrary ''Proposal

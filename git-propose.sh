@@ -183,7 +183,14 @@ git config user.email | grep "\-at\-" && \
       exit 1)
 EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
 
-REMOTE_BRANCH="${SLING_PREFIX}/${SOURCE_PREFIX}${PROPOSED_PREFIX}/$NEXT_INDEX/$PROPOSED_BRANCH/base/$BASE_COMMIT/$ONTO_PREFIX/$ONTO_BRANCH/user/$EMAIL"
+escape_branch() {
+    echo "$1" | sed 's,/,//,g'
+}
+
+MOVE_BRANCH_MODE="base"
+MOVE_BRANCH_PARAM="${BASE_COMMIT}"
+
+REMOTE_BRANCH="${SLING_PREFIX}/${SOURCE_PREFIX}${PROPOSED_PREFIX}/$NEXT_INDEX/$(escape_branch $PROPOSED_BRANCH)/$MOVE_BRANCH_MODE/$MOVE_BRANCH_PARAM/$ONTO_PREFIX/$(escape_branch $ONTO_BRANCH)/user/$EMAIL"
 
 COMMIT_COUNT=$(git log --oneline $BASE_COMMIT..HEAD | wc -l)
 

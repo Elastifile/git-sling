@@ -55,7 +55,8 @@ logit() {
 delete_rejected_branches() {
     logit fetch -p
     git branch -r | grep -E "sling/rejected/[0-9]+/$testbranch" || fail "Expecting rejected branch!"
-    local rejected_branch=$(git branch -r | grep -E "sling/rejected/[0-9]+/$testbranch")
+    local rejected_branch
+    rejected_branch=$(git branch -r | grep -E "sling/rejected/[0-9]+/$testbranch")
     logit push --delete origin $(echo "$rejected_branch" | cut -d'/' -f2-)
 }
 

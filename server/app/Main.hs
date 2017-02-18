@@ -223,7 +223,7 @@ rejectProposal options proposal reason prepushLogs (msg, err) = do
     Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
     abort "Rejected"
 
-attemptBranchOrAbort :: Text -> IORef CurrentState -> Options -> PrepushCmd -> Branch -> Proposal -> EShell ()
+attemptBranchOrAbort :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Branch -> Proposal -> EShell ()
 attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = do
     dirPath <- FP.decodeString <$> liftIO (createTempDirectory "/tmp" "sling.log")
     attemptBranch serverId currentState options prepushCmd dirPath branch proposal `catchError` abortAttempt currentState options proposal
@@ -365,7 +365,7 @@ runAttempt currentState options prepushCmd logDir proposal finalBase finalHead o
     eprint $ "Finished handling proposal " <> formatProposal proposal
 
 
-attemptBranch :: Text -> IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal -> EShell ()
+attemptBranch :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal -> EShell ()
 attemptBranch serverId currentState options prepushCmd logDir proposalBranch proposal = do
     cleanupBranches -- remove leftover branches
     Git.fetch
@@ -477,7 +477,7 @@ data PollOptions =
     }
 
 
-data ServerId = ServerIdHostName | ServerIdName Text
+data OptServerId = OptServerIdHostName | OptServerIdName Text
 
 data Options =
     Options
@@ -485,7 +485,7 @@ data Options =
     , optEmailClient :: [Text]
     , optForceDryRun :: Bool
     , optTargetPrefix :: Maybe Prefix
-    , optServerId :: ServerId
+    , optServerId :: OptServerId
     , optCommandType :: CommandType
     }
 
@@ -621,7 +621,7 @@ parser =
     <*> optional (prefixOption
                   (long "target-prefix" <>
                    help "ITypef missing, successful branches are merged (unless dry-run) & deleted. If non-empty, prefix of branches to be used for succesful proposals (branches will not be merged)"))
-    <*> (fmap (maybe ServerIdHostName (ServerIdName . T.pack)) <$>
+    <*> (fmap (maybe OptServerIdHostName (OptServerIdName . T.pack)) <$>
          optional $ strOption
          (long "server-id" <>
           metavar "SERVER_ID" <>
@@ -638,7 +638,7 @@ shouldConsiderProposal pollOptions proposal =
     && fromMaybe True ((proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun pollOptions)
     where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
 
-handleSpecificProposal :: Text -> IORef CurrentState -> Options -> PrepushCmd -> Proposal -> EShell ()
+handleSpecificProposal :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Proposal -> EShell ()
 handleSpecificProposal serverId state options prepushCmd proposal = do
     Git.fetch
     remoteBranches <- Git.remoteBranches
@@ -659,7 +659,7 @@ parseProposals remoteBranches =
 getProposals :: EShell [(Branch, Proposal)]
 getProposals = parseProposals . map (uncurry Git.RemoteBranch) <$> Git.remoteBranches
 
-getFilteredProposals :: Text -> PollOptions -> EShell [(Branch, Proposal)]
+getFilteredProposals :: ServerId -> PollOptions -> EShell [(Branch, Proposal)]
 getFilteredProposals serverId pollOptions = do
     allProposals <- getProposals
     let filteredProposals = filter (shouldConsiderProposal pollOptions . snd) allProposals
@@ -689,7 +689,7 @@ cleanupBranches = do
         <$> Git.localBranches
     mapM_ (\x -> (Git.deleteLocalBranch x) & ignoreError) slingLocalBranches
 
-serverPoll :: Text -> IORef CurrentState -> Options -> PrepushCmd -> PollOptions -> EShell Bool
+serverPoll :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> PollOptions -> EShell Bool
 serverPoll serverId currentState options prepushCmd pollOptions = do
     allProposals <- getProposals
     proposals <- getFilteredProposals serverId pollOptions
@@ -726,7 +726,7 @@ serverPoll serverId currentState options prepushCmd pollOptions = do
             eprint . T.pack $ "Done proposal: " ++ show topProposal
             return True
 
-serverLoop :: Text -> IORef CurrentState -> Options -> PrepushCmd -> PollOptions -> EShell ()
+serverLoop :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> PollOptions -> EShell ()
 serverLoop serverId currentState options prepushCmd pollOptions = do
     void $ liftIO $ forkServer (optWebServerPort options) (readIORef currentState)
     let go = do
@@ -744,9 +744,9 @@ main = runEShell $ do
     options <- liftIO parseOpts
     currentState <- liftIO $ newIORef emptyCurrentState
     hostName <- liftIO getFullHostName
-    let serverId = case optServerId options of
-            ServerIdHostName -> T.pack hostName
-            ServerIdName serverIdName -> serverIdName
+    let serverId = ServerId $ case optServerId options of
+            OptServerIdHostName -> T.pack hostName
+            OptServerIdName serverIdName -> serverIdName
 
     Git.fetch
     case optCommandType options of

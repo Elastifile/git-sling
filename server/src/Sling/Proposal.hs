@@ -14,9 +14,12 @@ import           Data.Monoid         ((<>))
 import           Turtle              (Pattern, alphaNum, char, decimal, eof,
                                       hexDigit, notChar, oneOf, some, text)
 
+newtype ServerId = ServerId { fromServerId :: Text }
+      deriving (Show, Eq, Ord)
+
 data ProposalStatus
     = ProposalProposed
-    | ProposalInProgress { _proposalInProgressServerId :: Text }
+    | ProposalInProgress { _proposalInProgressServerId :: ServerId }
     | ProposalRejected
       deriving (Show, Eq, Ord)
 
@@ -58,20 +61,26 @@ dryRunOntoPrefix = "dry-run-onto"
 proposalPrefixPrefix :: Text
 proposalPrefixPrefix = "prefix-"
 
+formatBranchName :: Git.BranchName -> Text
+formatBranchName = T.replace "/" "//" . Git.fromBranchName
+
+branchNamePat :: Pattern Git.BranchName
+branchNamePat = Git.mkBranchName . T.replace "//" "/" . T.pack <$> some (notChar '#')
+
 formatProposal :: Proposal -> Text
 formatProposal p = "sling/" <> prefix <> "/" <> suffix
     where
         prefix = maybe T.empty (\x -> (proposalPrefixPrefix <> prefixToText x) <> "/") (proposalPrefix p) <>
             case proposalStatus p of
                 ProposalProposed -> proposedPrefix
-                ProposalInProgress serverId -> inProgressPrefix <> "/" <> serverId
+                ProposalInProgress serverId -> inProgressPrefix <> "/" <> fromServerId serverId
                 ProposalRejected -> rejectBranchPrefix
         suffix =
             T.pack (show . fromNatInt . proposalQueueIndex $ p)
-            <> "/" <> Git.fromBranchName (proposalName p)
+            <> "/" <> formatBranchName (proposalName p)
             <> "/base/" <> formatRef (proposalBranchBase p)
             <> "/" <> (if proposalDryRun p then dryRunOntoPrefix else ontoPrefix)  <> "/"
-            <> Git.fromBranchName (proposalBranchOnto p)
+            <> formatBranchName (proposalBranchOnto p)
             <> "/user/" <> formatSepEmail "-at-" (proposalEmail p)
 
 refPat :: Pattern Git.Ref
@@ -82,14 +91,13 @@ refPat =
      <|> (text "R-" *> (Git.RefBranch <$> remoteBranchPat))
      <|> (text "L-" *> (Git.RefBranch . Git.LocalBranch <$> branchNamePat))
     where
-        branchNamePat = Git.mkBranchName . T.pack <$> some (notChar '#')
         remoteBranchPat =
             Git.RemoteBranch <$> (Git.Remote . nonEmptyText . T.pack <$> some (notChar '/')) <*> (char '/' *> branchNamePat)
 
 
 formatRef :: Git.Ref -> Text
 formatRef (Git.RefParent r n) = (T.pack . show $ fromNatInt n) <> "#" <> formatRef r
-formatRef (Git.RefBranch (Git.RemoteBranch r n)) = "R-" <> fromNonEmptyText (Git.remoteName r) <> "/" <> Git.fromBranchName n
+formatRef (Git.RefBranch (Git.RemoteBranch r n)) = "R-" <> fromNonEmptyText (Git.remoteName r) <> "/" <> formatBranchName n
 formatRef r@(Git.RefBranch (Git.LocalBranch{})) = "L-" <> Git.refName r
 formatRef r = Git.refName r
 
@@ -103,14 +111,14 @@ proposalPat = do
     prefix <- (text ("/" <> proposalPrefixPrefix) *> (Just . Prefix . nonEmptyText <$> (someText <* fieldSep))) <|> (fieldSep *> pure Nothing)
 
     ps <- (text proposedPrefix *> pure ProposalProposed)
-        <|> (text rejectBranchPrefix *> pure ProposalRejected)
-        <|> (text inProgressPrefix *> fieldSep *> (ProposalInProgress <$> someText))
+          <|> (text rejectBranchPrefix *> pure ProposalRejected)
+          <|> (text inProgressPrefix *> fieldSep *> (ProposalInProgress . ServerId <$> someText))
     fieldSep
 
     index <- natInt <$> decimal
     fieldSep
 
-    name <- Git.mkBranchName <$> someText
+    name <- branchNamePat
     fieldSep
 
     _ <- text "base"
@@ -121,7 +129,7 @@ proposalPat = do
     isDryRun <- (text ontoPrefix *> pure False) <|> (text dryRunOntoPrefix *> pure True)
     fieldSep
 
-    ontoRef <- Git.mkBranchName <$> someText
+    ontoRef <- branchNamePat
     fieldSep
 
     _ <- text "user"
