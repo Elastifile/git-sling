@@ -772,5 +772,5 @@ main = runEShell $ do
         CommandTypePropose (ProposalModeSingle proposal) prepushCmd -> handleSpecificProposal serverId currentState options prepushCmd proposal
         CommandTypeList pollOptions -> do
             proposals <- getFilteredProposals serverId pollOptions
-            forM_ proposals $ \(_branch, proposal) -> do
-                eprint (formatProposal proposal <> " " <> formatEmail (proposalEmail proposal))
+            forM_ proposals $ \(branch, proposal) -> do
+                eprint (branchName branch <> " " <> formatEmail (proposalEmail proposal))
