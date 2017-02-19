@@ -203,11 +203,11 @@ slingBranchName :: Maybe Prefix -> Text -> Git.BranchName
 slingBranchName Nothing suffix = mkBranchName suffix
 slingBranchName (Just prefix) suffix = mkBranchName $ prefixToText prefix <> suffix
 
-rejectProposal :: Options -> Proposal -> Text -> Maybe PrepushLogs -> (Text, ExitCode) -> EShell ()
-rejectProposal options proposal reason prepushLogs (msg, err) = do
+rejectProposal :: Options -> Branch -> Proposal -> Text -> Maybe PrepushLogs -> (Text, ExitCode) -> EShell ()
+rejectProposal options proposalBranch proposal reason prepushLogs (msg, err) = do
     let rejectedProposal = proposal { proposalStatus = ProposalRejected }
         rejectBranchName = formatProposal rejectedProposal
-        origBranchName = formatProposal proposal
+        origBranchName = Git.branchName proposalBranch
         msgBody = "REJECT " <> origBranchName <> " because: '" <> reason <> "' (" <> msg <> "), exit code = " <> T.pack (show err)
     eprint $ msgBody
     sendProposalEmail options proposal ("Rejecting (" <> msg <> ")") (toHtml msgBody) prepushLogs ProposalFailureEmail
@@ -353,9 +353,9 @@ transitionProposal options finalBase finalHead proposal prepushLogs =
         Just targetPrefix -> transitionProposalToTarget options finalBase proposal targetPrefix prepushLogs
 
 runAttempt ::
-    IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Proposal ->
+    IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal ->
     Ref -> Ref -> Git.BranchName -> EShell ()
-runAttempt currentState options prepushCmd logDir proposal finalBase finalHead ontoBranchName = do
+runAttempt currentState options prepushCmd logDir origBranchName proposal finalBase finalHead ontoBranchName = do
 
     -- DO IT!
     logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
@@ -365,7 +365,7 @@ runAttempt currentState options prepushCmd logDir proposal finalBase finalHead o
     -- If this fails, reject branch will be created first; then the cleanup of in-progress
     -- branch will delete that one, so we're safe against losing the proposal
     runPrepush prepushLogs prepushCmd finalBase finalHead
-        `catchError` rejectProposal options proposal "Prepush command failed" (Just prepushLogs)
+        `catchError` rejectProposal options origBranchName proposal "Prepush command failed" (Just prepushLogs)
 
     -- TODO ensure not dirty
     eprint "Prepush command ran succesfully"
@@ -429,7 +429,7 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
                                                      MoveBranchOnto{} -> Git.RebaseDropMerges
                                                      MoveBranchProposed{} -> Git.RebaseKeepMerges
                               }
-            `catchError` rejectProposal options proposal "Rebase failed" Nothing
+            `catchError` rejectProposal options proposalBranch proposal "Rebase failed" Nothing
 
         -- rebase succeeded, we can now take this job
 
@@ -472,7 +472,7 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
                 ProposalRejected -> error "ASSERTION FAILED! Shouldn't be taking rejected proposal"
             when jobTaken $ do
                 sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
-                runAttempt currentState options prepushCmd logDir proposal finalBase finalHead ontoBranchName
+                runAttempt currentState options prepushCmd logDir proposalBranch proposal finalBase finalHead ontoBranchName
 
 usage :: String
 usage = List.intercalate "\n"
@@ -700,9 +700,9 @@ getFilteredProposals serverId pollOptions = do
 
 cleanupBranches :: EShell ()
 cleanupBranches = do
-    slingLocalBranches <- map (Git.mkBranchName . formatProposal)
+    slingLocalBranches <- map fst
         . catMaybes
-        . map (parseProposal . Git.fromBranchName)
+        . map (\b -> fmap (b,) . parseProposal . Git.fromBranchName $ b)
         <$> Git.localBranches
     mapM_ (\x -> (Git.deleteLocalBranch x) & ignoreError) slingLocalBranches
 
