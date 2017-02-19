@@ -186,12 +186,12 @@ git config user.email | grep "\-at\-" && \
 EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
 
 escape_branch() {
-    local escape_char="%"
+    local escape_char=","
     echo "$1" | grep "$escape_char" > /dev/null && (
         echo "Character: $escape_char is not allowed in branch names"
         exit 1
     )
-    echo "$1" | sed "s,/,$escape_char,g"
+    echo "$1" | sed "s/\//$escape_char/g"
 }
 if [ "$MOVE_BRANCH_MODE" == "base" ]; then
     if ! git branch --merged HEAD -r | grep " *origin/$ONTO_BRANCH\$"  > /dev/null ;

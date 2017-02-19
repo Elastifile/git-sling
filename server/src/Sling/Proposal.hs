@@ -67,7 +67,7 @@ proposalPrefixPrefix :: Text
 proposalPrefixPrefix = "prefix-"
 
 slashEscape :: Text
-slashEscape = "%"
+slashEscape = ","
 
 formatBranchName :: Git.BranchName -> Text
 formatBranchName = T.replace "/" slashEscape . Git.fromBranchName
