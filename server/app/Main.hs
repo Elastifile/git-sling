@@ -659,14 +659,13 @@ shouldConsiderProposal pollOptions proposal =
 handleSpecificProposal :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Proposal -> EShell ()
 handleSpecificProposal serverId state options prepushCmd proposal = do
     Git.fetch
-    remoteBranches <- Git.remoteBranches
-    let proposalBranchName = formatProposal proposal
-        matchingBranches = filter (\b -> proposalBranchName == fromBranchName (snd b)) remoteBranches
+    allProposals <- getProposals
+    let matchingBranches = filter (\(_b, p) -> proposal == p) allProposals
     branch <- case matchingBranches of
-        [] -> abort $ "Failed to find branch: " <> T.pack (show proposalBranchName)
-        [b] -> return b
-        _ -> abort $ "Assertion failed: multiple branches matching the same proposal: " <> T.pack (show proposalBranchName)
-    attemptBranchOrAbort serverId state options prepushCmd (uncurry Git.RemoteBranch branch) proposal
+        [] -> abort $ "Failed to find branch for proposal: " <> (formatProposal proposal)
+        [(b, _p)] -> return b
+        _ -> abort $ "Assertion failed: multiple branches matching the same proposal: " <> (formatProposal proposal)
+    attemptBranchOrAbort serverId state options prepushCmd branch proposal
 
 parseProposals :: [Branch] -> [(Branch, Proposal)]
 parseProposals remoteBranches =
