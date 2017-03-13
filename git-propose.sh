@@ -42,6 +42,7 @@ Usage: git propose <target branch> [--rebase] [--dry-run] [--no-upgrade-check] [
 
  --rebase             Propose to just rebase the current branch instead of merging it into the target branch
  --dry-run            Don't actually merge the changes; just check that rebase + prepush passes.
+ --no-flatten         Don't flatten merge commits
  --(no-)upgrade-check Enable/disable automatic checking for a new version of git-sling
  --vip                Give this proposal a higher priority than normal (use with discretion).
 
@@ -107,6 +108,7 @@ ONTO_BRANCH=""
 IS_VIP=false
 SOURCE_PREFIX=""
 MOVE_BRANCH_MODE="base"
+FLATTEN=true
 for arg in "$@"; do
     case $arg in
         --rebase)
@@ -115,6 +117,9 @@ for arg in "$@"; do
         --dry-run)
             ONTO_PREFIX="dry-run-onto"
             IS_DRY_RUN=true
+            ;;
+        --no-flatten)
+            FLATTEN=false
             ;;
         --no-upgrade-check)
             UPGRADE_CHECK=false
@@ -203,7 +208,14 @@ else
     MOVE_BRANCH_PARAM="$(escape_branch $PROPOSED_BRANCH)"
 fi
 
-REMOTE_BRANCH="${SLING_PREFIX}/${SOURCE_PREFIX}${PROPOSED_PREFIX}/$NEXT_INDEX/$(escape_branch $PROPOSED_BRANCH)/$MOVE_BRANCH_MODE/$MOVE_BRANCH_PARAM/$ONTO_PREFIX/$(escape_branch $ONTO_BRANCH)/user/$EMAIL"
+if $FLATTEN ;
+then
+    MERGE_TYPE=""
+else
+    MERGE_TYPE="-keep"
+fi
+
+REMOTE_BRANCH="${SLING_PREFIX}/${SOURCE_PREFIX}${PROPOSED_PREFIX}/$NEXT_INDEX/$(escape_branch $PROPOSED_BRANCH)/$MOVE_BRANCH_MODE$MERGE_TYPE/$MOVE_BRANCH_PARAM/$ONTO_PREFIX/$(escape_branch $ONTO_BRANCH)/user/$EMAIL"
 
 COMMIT_COUNT=$(git log --oneline $BASE_COMMIT..HEAD | wc -l)
 

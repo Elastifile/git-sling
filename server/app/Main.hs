@@ -307,7 +307,7 @@ transitionProposalToTarget :: Options -> Git.Ref -> Proposal -> Prefix -> Prepus
 transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = do
     Git.RefHash shortBaseHash <- Git.shortenRef newBase
     let moveBranch = case proposalMove proposal of
-                       MoveBranchOnto _oldBase -> MoveBranchOnto shortBaseHash
+                       MoveBranchOnto mergeType _oldBase -> MoveBranchOnto mergeType shortBaseHash
                        MoveBranchProposed name -> MoveBranchProposed name
 
         targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix
@@ -331,7 +331,7 @@ transitionProposalToCompletion options finalHead proposal prepushLogs = do
     then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs) ProposalSuccessEmail
     else do
         case proposalMove proposal of
-            MoveBranchOnto _baseRef -> do
+            MoveBranchOnto _mergeType _baseRef -> do
                 eprint $ "Updating: " <> fromBranchName ontoBranchName
                 Git.checkout (RefBranch $ LocalBranch ontoBranchName)
                 Git.push
@@ -386,7 +386,7 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
         remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
         (baseRef, headRef) =
             case proposalMove proposal of
-              MoveBranchOnto base -> (Git.RefHash base, RefBranch proposalBranch)
+              MoveBranchOnto _mergeType base -> (Git.RefHash base, RefBranch proposalBranch)
               MoveBranchProposed name -> (remoteOnto, Git.RefBranch $ Git.RemoteBranch origin name)
     commits <- Git.log baseRef headRef
 
@@ -425,9 +425,11 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
         -- rebase work onto target
         Git.rebase Git.Rebase { Git.rebaseBase = baseRef,
                                 Git.rebaseOnto = remoteOnto,
-                                Git.rebasePolicy = case proposalMove proposal of
-                                                     MoveBranchOnto{} -> Git.RebaseDropMerges
-                                                     MoveBranchProposed{} -> Git.RebaseKeepMerges
+                                Git.rebasePolicy =
+                                      case proposalMove proposal of
+                                          MoveBranchOnto MergeTypeFlat       _ -> Git.RebaseDropMerges
+                                          MoveBranchOnto MergeTypeKeepMerges _ -> Git.RebaseKeepMerges
+                                          MoveBranchProposed{}                 -> Git.RebaseKeepMerges
                               }
             `catchError` rejectProposal options proposalBranch proposal "Rebase failed" Nothing
 

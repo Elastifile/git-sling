@@ -39,9 +39,13 @@ prefixToText = fromNonEmptyText . fromPrefix
 prefixFromText :: Text -> Prefix
 prefixFromText = Prefix . nonEmptyText
 
+data MergeType = MergeTypeFlat | MergeTypeKeepMerges
+      deriving (Show, Eq, Ord)
+
 data MoveBranch
     = MoveBranchProposed { _moveBranchName :: Git.BranchName }
-    | MoveBranchOnto { _moveOntoRebaseFrom :: Hash }
+    | MoveBranchOnto { _moveMergeType :: MergeType,
+                       _moveOntoRebaseFrom :: Hash }
       deriving (Show, Eq, Ord)
 
 data Proposal
@@ -81,8 +85,12 @@ moveOntoPrefix = "base"
 moveProposedPrefix :: Text
 moveProposedPrefix = "rebase"
 
+mergeTypePrefix :: MergeType -> Text
+mergeTypePrefix MergeTypeKeepMerges = "-keep"
+mergeTypePrefix MergeTypeFlat = ""
+
 formatMoveBranch :: MoveBranch -> Text
-formatMoveBranch (MoveBranchOnto ref) = moveOntoPrefix <> "/" <> fromHash ref
+formatMoveBranch (MoveBranchOnto mergeType ref) = moveOntoPrefix <> mergeTypePrefix mergeType <> "/" <> fromHash ref
 formatMoveBranch (MoveBranchProposed name) = moveProposedPrefix <> "/" <> (formatBranchName name)
 
 formatProposal :: Proposal -> Text
@@ -113,8 +121,12 @@ formatRef r = Git.refName r
 fieldSep :: Pattern ()
 fieldSep = void $ char '/'
 
+mergeTypePat :: Pattern MergeType
+mergeTypePat = (text (mergeTypePrefix MergeTypeKeepMerges) *> pure MergeTypeKeepMerges)
+    <|> (pure MergeTypeFlat)
+
 movePat :: Pattern MoveBranch
-movePat = (text moveOntoPrefix *> fieldSep *> (MoveBranchOnto <$> hashPat))
+movePat = (text moveOntoPrefix *> (MoveBranchOnto <$> mergeTypePat <*> (fieldSep *> hashPat)))
     <|> (text moveProposedPrefix *> fieldSep *> (MoveBranchProposed <$> branchNamePat))
 
 proposalPat :: Pattern Proposal

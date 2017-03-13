@@ -82,7 +82,9 @@ exec_test() {
 
     echo "----------------------------------------------------------------------"
     echo "Running test: $1"
-    source "$script_dir/$1"
+    (
+        source "$script_dir/$1"
+    )
     echo "----------------------------------------------------------------------"
 }
 
@@ -98,6 +100,7 @@ exec_test "tests/multi-propose.sh"
 exec_test "tests/specific-proposal.sh"
 exec_test "tests/source-target.sh"
 exec_test "tests/in-progress-resume.sh"
+exec_test "tests/flatten.sh"
 
 echo '
  #####  #     #  #####   #####  #######  #####   #####
