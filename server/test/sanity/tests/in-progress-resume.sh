@@ -6,6 +6,8 @@ logit fetch -p
 logit checkout -b "resume_in_progress"
 logit reset --hard origin/master
 
+add_commit_file resume_in_progress_commit_1_of_2
+
 echo 'sleep 1000' > ./sleep_prepush.sh
 chmod +x ./sleep_prepush.sh
 logit add ./sleep_prepush.sh

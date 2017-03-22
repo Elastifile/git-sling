@@ -218,7 +218,7 @@ rejectProposal options proposalBranch proposal reason prepushLogs (msg, err) = d
     -- We have to be on another branch before deleting stuff, so arbitrarily picking onto
     Git.checkout (RefBranch . LocalBranch $ proposalBranchOnto proposal)
     _ <- Git.createLocalBranch (mkBranchName rejectBranchName) RefHead
-    _ <- Git.createRemoteTrackingBranch origin $ mkBranchName rejectBranchName
+    _ <- Git.createRemoteTrackingBranch origin (mkBranchName rejectBranchName) Git.PushForceWithoutLease
     Git.deleteBranch (LocalBranch . mkBranchName $ formatProposal proposal) & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
     abort "Rejected"
@@ -264,11 +264,11 @@ setStateProposal currentState proposal commits = do
     echo "Commits: "
     mapM_ print commits
 
-safeCreateBranch :: Git.BranchName -> EShell ()
-safeCreateBranch targetBranchName = do
+safeCreateBranch :: Git.BranchName -> Git.PushType -> EShell ()
+safeCreateBranch targetBranchName pushType = do
     Git.deleteLocalBranch targetBranchName & ignoreError
     _ <- Git.createLocalBranch targetBranchName RefHead
-    _ <- Git.createRemoteTrackingBranch origin targetBranchName
+    _ <- Git.createRemoteTrackingBranch origin targetBranchName pushType
     return ()
 
 deleteLocalAndRemote :: Git.BranchName -> EShell ()
@@ -276,10 +276,10 @@ deleteLocalAndRemote b = do
     Git.deleteBranch (Git.LocalBranch b)
     Git.deleteBranch (RemoteBranch origin b)
 
-withNewBranch :: Git.BranchName -> EShell a -> EShell a
-withNewBranch b act = do
+withNewBranch :: Git.BranchName -> Git.PushType -> EShell a -> EShell a
+withNewBranch b pushType act = do
     currentRef <- Git.currentRef
-    safeCreateBranch b
+    safeCreateBranch b pushType
     let cleanup = do
             Git.checkout currentRef
             deleteLocalAndRemote b
@@ -317,7 +317,7 @@ transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = d
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack targetProposalName
     when (targetBranchName == ontoBranchName)
         $ abort $ "Can't handle branch, onto == target: " <> targetProposalName
-    safeCreateBranch targetBranchName
+    safeCreateBranch targetBranchName Git.PushNonForce
     Git.checkout (RefBranch $ LocalBranch ontoBranchName)
     Git.deleteLocalBranch targetBranchName
     sendProposalEmail options proposal ("Ran successfully, moved to: " <> prefixToText targetPrefix) "" (Just prepushLogs) ProposalSuccessEmail
@@ -465,7 +465,11 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
         finalHead <- Git.currentRef
 
         eprint "Switching to (new) in-progress branch"
-        withNewBranch inProgressBranchName $ do
+        let forceCreateInProgress = case proposalStatus proposal of
+                ProposalInProgress{} -> Git.PushForceWithoutLease -- can't use lease to create new branch. stupid git.
+                _                    -> Git.PushNonForce
+
+        withNewBranch inProgressBranchName forceCreateInProgress $ do
             eprint "Deleting proposal branch..."
             jobTaken <- case proposalStatus proposal of
                 ProposalInProgress{} -> return True

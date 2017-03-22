@@ -45,9 +45,13 @@ git config user.name "Your Name"
 echo "----------------------------------------------------------------------"
 
 echo "Testing server in: $serverdir/work"
+git branch -r | grep rejected && fail "No rejected branches expected yet" || true
+
 # Should fail, no tools/prepush script in repo
 echo "Expecting failure..."
 run_cmd_fail $sling_server poll -- $prepush || fail "ERROR: Server should fail!"
+
+git branch -r | grep rejected || fail "Server should have created a rejected branch and pushed it"
 
 echo "----------------------------------------------------------------------"
 

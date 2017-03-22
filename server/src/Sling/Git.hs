@@ -158,11 +158,21 @@ instance CmdLineOption MergeFF where
 merge :: MergeFF -> Branch -> EShell ()
 merge mo branch = git ["merge", optionToText mo, branchFullName branch] >> pure ()
 
+data PushType = PushNonForce | PushForceWithoutLease | PushForceWithLease
+
+pushWith :: PushType -> [Text] -> EShell ()
+pushWith pushType args =
+    case pushType of
+        PushNonForce -> push' []
+        PushForceWithLease -> push' ["--force-with-lease"]
+        PushForceWithoutLease -> push' ["--force"]
+    where push' args' = git (["push"] ++ args' ++ args) >> pure ()
+
 push :: EShell ()
-push = git ["push"] >> pure ()
+push = pushWith PushNonForce []
 
 pushForceWithLease :: EShell ()
-pushForceWithLease = git ["push", "--force-with-lease"] >> pure ()
+pushForceWithLease = pushWith PushForceWithLease []
 
 rebaseAbort :: EShell ()
 rebaseAbort = git ["rebase", "--abort"] >> pure ()
@@ -206,9 +216,9 @@ createLocalBranch name ref = do
     _ <- git ["checkout", "-b", fromBranchName name, refName ref]
     return $ LocalBranch name
 
-createRemoteTrackingBranch :: Remote -> BranchName -> EShell Branch
-createRemoteTrackingBranch r name = do
-    _ <- git ["push", "-u", fromNonEmptyText $ remoteName r, fromBranchName name]
+createRemoteTrackingBranch :: Remote -> BranchName -> PushType -> EShell Branch
+createRemoteTrackingBranch r name pushType = do
+    pushWith pushType ["-u", fromNonEmptyText $ remoteName r, fromBranchName name]
     return $ RemoteBranch r name
 
 data RebaseMergePolicy = RebaseKeepMerges | RebaseDropMerges
