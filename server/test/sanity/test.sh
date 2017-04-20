@@ -17,6 +17,7 @@ git config user.email "you@example.com"
 git config user.name "Your Name"
 
 echo "Working in: $workdir/work"
+echo "Using sling: $sling_server"
 
 # Setup test environment, test that it behaves as expected
 
@@ -105,6 +106,7 @@ exec_test "tests/specific-proposal.sh"
 exec_test "tests/source-target.sh"
 exec_test "tests/in-progress-resume.sh"
 exec_test "tests/flatten.sh"
+exec_test "tests/deleted-remote-branch.sh"
 
 echo '
  #####  #     #  #####   #####  #######  #####   #####

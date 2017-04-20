@@ -85,8 +85,13 @@ sourceEmail = Email "elasti-prepush" "elastifile.com"
 resetLocalOnto :: Proposal -> EShell ()
 resetLocalOnto proposal = do
     let ontoBranchName = proposalBranchOnto proposal
-    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
-    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
+        localOntoBranch = RefBranch $ LocalBranch ontoBranchName
+        remoteOntoBranch = RefBranch $ RemoteBranch origin ontoBranchName
+    localExists <- Git.exists localOntoBranch
+    remoteExists <- Git.exists remoteOntoBranch
+    when (localExists && remoteExists) $ do
+        Git.checkout localOntoBranch
+        Git.reset Git.ResetHard remoteOntoBranch
 
 addAttachment :: FilePath -> Text -> IO (Maybe Mail.Part)
 addAttachment fn attachedFN = do
@@ -203,22 +208,25 @@ slingBranchName :: Maybe Prefix -> Text -> Git.BranchName
 slingBranchName Nothing suffix = mkBranchName suffix
 slingBranchName (Just prefix) suffix = mkBranchName $ prefixToText prefix <> suffix
 
-rejectProposal :: Options -> Branch -> Proposal -> Text -> Maybe PrepushLogs -> (Text, ExitCode) -> EShell ()
-rejectProposal options proposalBranch proposal reason prepushLogs (msg, err) = do
+rejectProposal :: Options -> Branch -> Proposal -> Text -> Maybe PrepushLogs -> Maybe (Text, ExitCode) -> EShell ()
+rejectProposal options proposalBranch proposal reason prepushLogs err = do
     let rejectedProposal = proposal { proposalStatus = ProposalRejected }
         rejectBranchName = formatProposal rejectedProposal
         origBranchName = Git.branchName proposalBranch
-        msgBody = "REJECT " <> origBranchName <> " because: '" <> reason <> "' (" <> msg <> "), exit code = " <> T.pack (show err)
+        suffix = case err of
+            Just (msg, errCode) -> " because: '" <> reason <> "' (" <> msg <> "), exit code = " <> T.pack (show errCode)
+            Nothing -> ""
+        msgBody = "REJECT " <> origBranchName <> suffix
     eprint $ msgBody
-    sendProposalEmail options proposal ("Rejecting (" <> msg <> ")") (toHtml msgBody) prepushLogs ProposalFailureEmail
+    sendProposalEmail options proposal ("Rejecting (" <> reason <> ")") (toHtml msgBody) prepushLogs ProposalFailureEmail
     Git.fetch & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
     Git.deleteBranch (LocalBranch $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
     Git.reset Git.ResetHard RefHead
-    -- We have to be on another branch before deleting stuff, so arbitrarily picking onto
-    Git.checkout (RefBranch . LocalBranch $ proposalBranchOnto proposal)
     _ <- Git.createLocalBranch (mkBranchName rejectBranchName) RefHead
     _ <- Git.createRemoteTrackingBranch origin (mkBranchName rejectBranchName) Git.PushForceWithoutLease
+    -- We have to be on another branch before deleting stuff, so arbitrarily picking rejected branch
+    Git.checkout (Git.RefBranch . LocalBranch $ mkBranchName rejectBranchName)
     Git.deleteBranch (LocalBranch . mkBranchName $ formatProposal proposal) & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
     abort "Rejected"
@@ -365,7 +373,7 @@ runAttempt currentState options prepushCmd logDir origBranchName proposal finalB
     -- If this fails, reject branch will be created first; then the cleanup of in-progress
     -- branch will delete that one, so we're safe against losing the proposal
     runPrepush prepushLogs prepushCmd finalBase finalHead
-        `catchError` rejectProposal options origBranchName proposal "Prepush command failed" (Just prepushLogs)
+        `catchError` (rejectProposal options origBranchName proposal "Prepush command failed" (Just prepushLogs) . Just)
 
     -- TODO ensure not dirty
     eprint "Prepush command ran succesfully"
@@ -388,14 +396,6 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
             case proposalMove proposal of
               MoveBranchOnto _mergeType base -> (Git.RefHash base, RefBranch proposalBranch)
               MoveBranchProposed name -> (remoteOnto, Git.RefBranch $ Git.RemoteBranch origin name)
-    commits <- Git.log baseRef headRef
-
-    liftIO $ setStateProposal currentState proposal commits
-
-    commitLogHtml <- proposalEmailHeader options proposal commits <$> Git.remoteUrl origin
-    let title = if isDryRun options proposal
-                then "Running dry run"
-                else "Attempting to merge"
 
     -- cleanup leftover state from previous runs
     cleanupGit proposal
@@ -404,11 +404,21 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
 
     let niceBranchName = proposalName proposal
         niceBranch = LocalBranch niceBranchName
+        verifyRemoteBranch :: (Git.Remote, Git.BranchName) -> EShell ()
         verifyRemoteBranch rb =
             unless (rb `elem` remoteBranches)
-            $ abort $ "No remote branch: " <> T.pack (show rb)
+            $ rejectProposal options proposalBranch proposal ("Remote branch doesn't exist: " <> fromBranchName ontoBranchName) Nothing Nothing
 
     verifyRemoteBranch (origin, ontoBranchName)
+
+    commits <- Git.log baseRef headRef -- must be done after we verify the remote branch exists
+
+    liftIO $ setStateProposal currentState proposal commits
+
+    commitLogHtml <- proposalEmailHeader options proposal commits <$> Git.remoteUrl origin
+    let title = if isDryRun options proposal
+                then "Running dry run"
+                else "Attempting to merge"
 
     -- note: 'nice' branch and 'onto' branch may be the same
     -- branch. (e.g. proposal called 'master' with onto=master)
@@ -431,7 +441,7 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
                                           MoveBranchOnto MergeTypeKeepMerges _ -> Git.RebaseKeepMerges
                                           MoveBranchProposed{}                 -> Git.RebaseKeepMerges
                               }
-            `catchError` rejectProposal options proposalBranch proposal "Rebase failed" Nothing
+            `catchError` (rejectProposal options proposalBranch proposal "Rebase failed" Nothing . Just)
 
         -- rebase succeeded, we can now take this job
 

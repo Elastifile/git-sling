@@ -3,6 +3,7 @@ module Sling.Git where
 
 import           Control.Applicative    (optional, (<|>))
 import           Control.Monad          (join, when)
+import           Control.Monad.Except   (MonadError (..))
 
 import           Data.Maybe             (mapMaybe, catMaybes)
 import           Data.Monoid            ((<>))
@@ -220,6 +221,10 @@ createRemoteTrackingBranch :: Remote -> BranchName -> PushType -> EShell Branch
 createRemoteTrackingBranch r name pushType = do
     pushWith pushType ["-u", fromNonEmptyText $ remoteName r, fromBranchName name]
     return $ RemoteBranch r name
+
+exists :: Ref -> EShell Bool
+exists ref = (git ["describe", "--always", refName ref] >> (return True))
+    `catchError` (const $ return False)
 
 data RebaseMergePolicy = RebaseKeepMerges | RebaseDropMerges
 
