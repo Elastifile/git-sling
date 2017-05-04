@@ -32,8 +32,7 @@ import           Turtle (ExitCode, (&), echo)
 import qualified Data.List as List
 
 import qualified Network.Mail.Mime as Mail
-import Network.BSD (getHostName, getHostByName)
-import qualified Network.BSD as Net
+import           Network.BSD (getHostName)
 
 import qualified Filesystem.Path.CurrentOS as FP
 import           Filesystem.Path.CurrentOS (FilePath)
@@ -52,9 +51,6 @@ import           Prelude hiding (FilePath)
 
 data PrepushLogs = PrepushLogs { prepushLogDir :: FilePath, prepushFullLogFilePath :: FilePath }
     deriving (Show)
-
-getFullHostName :: IO Net.HostName
-getFullHostName = Net.hostName <$> (getHostName >>= getHostByName)
 
 pollingInterval :: Int
 pollingInterval = 1000000 * 10
@@ -140,7 +136,7 @@ addAttachments prepushLogs includeAttachment mail =
 
 formatProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> IncludeAttachment -> EmailType -> EShell LBS.ByteString
 formatProposalEmail options proposal subject body prepushLogs includeAttachment emailType = do
-    webHref <- liftIO $ (<> (":" <> show (optWebServerPort options))) . ("http://" <>) <$> getFullHostName
+    webHref <- liftIO $ (<> (":" <> show (optWebServerPort options))) . ("http://" <>) <$> getHostName
     let html = renderHtml $ do
             H.p . H.b $ fromString $ T.unpack subject
             body
@@ -776,7 +772,7 @@ main :: IO ()
 main = runEShell $ do
     options <- liftIO parseOpts
     currentState <- liftIO $ newIORef emptyCurrentState
-    hostName <- liftIO getFullHostName
+    hostName <- liftIO getHostName
     let serverId = ServerId $ case optServerId options of
             OptServerIdHostName -> T.pack hostName
             OptServerIdName serverIdName -> serverIdName
