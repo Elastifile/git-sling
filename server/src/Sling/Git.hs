@@ -242,8 +242,11 @@ rebase (Rebase base onto policy) = git (["rebase", refName base, "--onto", refNa
             RebaseDropMerges -> []
 
 
+currentRefHash :: EShell Hash
+currentRefHash = hash . head <$> git ["log", "-1", "--format=%H"]
+
 currentRef :: EShell Ref
-currentRef = RefHash . hash . head <$> git ["log", "-1", "--format=%H"]
+currentRef = RefHash <$> currentRefHash
 
 isMergeCommit :: Ref -> EShell Bool
 isMergeCommit ref = do
