@@ -422,7 +422,8 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
     -- sync local onto with remote
     Git.checkout (RefBranch $ LocalBranch ontoBranchName)
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
-    finalBase <- Git.currentRef
+    finalBaseHash <- Git.currentRefHash
+    let finalBase = Git.RefHash finalBaseHash
 
     -- create local work branch, reset to proposed
     withLocalBranch niceBranchName $ do
@@ -440,10 +441,6 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
             `catchError` (rejectProposal options proposalBranch proposal "Rebase failed" Nothing . Just)
 
         -- rebase succeeded, we can now take this job
-
-        let inProgressProposalName = formatProposal $ proposal { proposalStatus = ProposalInProgress serverId }
-            inProgressBranchName = mkBranchName inProgressProposalName
-        eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack inProgressProposalName
 
         case proposalMove proposal of
             MoveBranchOnto{} -> do
@@ -474,6 +471,15 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
         let forceCreateInProgress = case proposalStatus proposal of
                 ProposalInProgress{} -> Git.PushForceWithoutLease -- can't use lease to create new branch. stupid git.
                 _                    -> Git.PushNonForce
+
+        let newProposalMove = case proposalMove proposal of
+                MoveBranchOnto mergeType _baseHash -> MoveBranchOnto mergeType finalBaseHash
+                MoveBranchProposed moveBranchName -> MoveBranchProposed moveBranchName
+
+            inProgressProposalName = formatProposal $ proposal { proposalStatus = ProposalInProgress serverId
+                                                               , proposalMove = newProposalMove }
+            inProgressBranchName = mkBranchName inProgressProposalName
+        eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack inProgressProposalName
 
         withNewBranch inProgressBranchName forceCreateInProgress $ do
             eprint "Deleting proposal branch..."
