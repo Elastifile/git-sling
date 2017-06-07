@@ -510,6 +510,7 @@ data PollOptions =
     , optSourcePrefix :: Maybe Prefix
     , optPollMode :: PollMode
     , optNoConcurrent :: Bool
+    , optInProgressFromAnyServer :: Bool
     }
 
 
@@ -634,6 +635,8 @@ pollOptionsParser =
         )
     <*> switch ( long "no-concurrent" <>
                   help "Prevent concurrent jobs: don't match any proposal, if there's an in-progress proposal matching the filter" )
+    <*> switch ( long "any-host" <>
+                  help "Match in-progress proposals even if they belong to a different host" )
 
 
 parser :: Parser Options
@@ -667,7 +670,8 @@ parser =
 
 shouldConsiderProposal :: PollOptions -> Proposal -> Bool
 shouldConsiderProposal pollOptions proposal =
-    (optSourcePrefix pollOptions == proposalPrefix proposal)
+    (proposalStatus proposal /= ProposalRejected)
+    && (optSourcePrefix pollOptions == proposalPrefix proposal)
     && fromMaybe True (checkFilter <$> optBranchFilterAll pollOptions)
     && fromMaybe True (not . checkFilter <$> optBranchExcludeFilterAll pollOptions)
     && fromMaybe True (((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun pollOptions)
@@ -714,7 +718,9 @@ getFilteredProposals serverId pollOptions = do
 
     if (optNoConcurrent pollOptions) && (any (isOnOtherServer . snd) filteredProposals)
         then return []
-        else return proposalsForThisServer
+        else return $ if (optInProgressFromAnyServer pollOptions)
+                      then filteredProposals
+                      else proposalsForThisServer
 
 cleanupBranches :: EShell ()
 cleanupBranches = do
