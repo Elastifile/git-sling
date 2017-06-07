@@ -316,7 +316,7 @@ transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = d
 
         targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix
                                                        , proposalMove = moveBranch
-                                                       , proposalStatus = proposalStatus proposal }
+                                                       , proposalStatus = ProposalProposed }
         targetBranchName = mkBranchName targetProposalName
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack targetProposalName
     when (targetBranchName == ontoBranchName)
