@@ -2,7 +2,7 @@
 module Sling.Options
     where
 
-import Sling.Proposal (Prefix, prefixFromText, Proposal, parseProposal)
+import Sling.Proposal (Prefix, prefixFromText, Proposal(..), parseProposal)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Maybe (fromMaybe)
@@ -181,4 +181,9 @@ parser =
           metavar "SERVER_ID" <>
           help ("Used for resuming in-progress jobs that were aborted due to a failed server")))
     <*> parseModeBranches
+
+isDryRun :: Options -> Proposal -> Bool
+isDryRun options proposal = optForceDryRun options || proposalDryRun proposal
+
+
 

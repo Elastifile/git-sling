@@ -3,64 +3,50 @@
 {-# LANGUAGE TupleSections     #-}
 module Main where
 
-import           Control.Monad (when, unless, join, void, forM_)
+import           Control.Monad (when, unless, void, forM_)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
-import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString.Char8 as BS8
 import           Data.IORef
 import           Data.Maybe (fromMaybe, mapMaybe, catMaybes)
-import           Data.String (fromString)
 import           Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Data.Text.Lazy as L
-import qualified Data.Text.Lazy.Encoding as LE
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..), branchName,
                                                 fromBranchName, mkBranchName)
 import qualified Sling.Git as Git
-import           Sling.Lib                     (EShell, Email (..), abort, eproc,
-                                                eprocsIn, eprocsL, formatEmail, eprint,
-                                                ignoreError, runEShell, fromHash)
-import           Sling.Options (parseOpts,
+import           Sling.Lib                     (EShell, abort, eproc,
+                                                eprocsL, formatEmail, eprint,
+                                                ignoreError, runEShell)
+import           Sling.Options (parseOpts, isDryRun,
                                 OptServerId(..), PrepushCmd(..), CommandType(..),
                                 PrepushMode(..),
                                 Options(..), PollOptions(..), PollMode(..),)
+import           Sling.Path (encodeFP)
+import           Sling.Prepush (PrepushLogs(..))
 import           Sling.Proposal
+import           Sling.Email (sendProposalEmail, formatCommitsForEmail, EmailType(..))
 import           Sling.Web (forkServer, CurrentState(..), emptyCurrentState)
 import           Text.Regex.Posix ((=~))
 import           Turtle (ExitCode, (&), echo)
 
 import qualified Data.List as List
 
-import qualified Network.Mail.Mime as Mail
 import           Network.BSD (getHostName)
 
 import qualified Filesystem.Path.CurrentOS as FP
 import           Filesystem.Path.CurrentOS (FilePath)
 
-import           System.IO (withFile, hSeek, SeekMode(..), IOMode(..), hFileSize)
-import           System.IO.Error (tryIOError)
 import           System.IO.Temp (createTempDirectory)
-import           Text.Blaze.Html (toHtml, (!))
-import           Text.Blaze.Html.Renderer.Text (renderHtml)
+import           Text.Blaze.Html (toHtml)
 import qualified Text.Blaze.Html5 as H
-import qualified Text.Blaze.Html5.Attributes as A
-import           Control.Concurrent (forkIO, threadDelay)
+import           Control.Concurrent (threadDelay)
 import           Options.Applicative
 
 import           Prelude hiding (FilePath)
 
-data PrepushLogs = PrepushLogs { prepushLogDir :: FilePath, prepushFullLogFilePath :: FilePath }
-    deriving (Show)
-
 pollingInterval :: Int
 pollingInterval = 1000000 * 10
-
-encodeFP :: FilePath -> T.Text
-encodeFP = T.pack . BS8.unpack . FP.encode
 
 runPrepush :: PrepushLogs -> PrepushCmd -> Ref -> Ref -> EShell ()
 runPrepush (PrepushLogs logDir logFile) (PrepushCmd cmd) baseR headR = do
@@ -79,9 +65,6 @@ runPrepush (PrepushLogs logDir logFile) (PrepushCmd cmd) baseR headR = do
 origin :: Remote
 origin = Remote "origin"
 
-sourceEmail :: Email
-sourceEmail = Email "elasti-prepush" "elastifile.com"
-
 resetLocalOnto :: Proposal -> EShell ()
 resetLocalOnto proposal = do
     let ontoBranchName = proposalBranchOnto proposal
@@ -92,96 +75,6 @@ resetLocalOnto proposal = do
     when (localExists && remoteExists) $ do
         Git.checkout localOntoBranch
         Git.reset Git.ResetHard remoteOntoBranch
-
-addAttachment :: FilePath -> Text -> IO (Maybe Mail.Part)
-addAttachment fn attachedFN = do
-    res <- liftIO $ tryIOError $ withFile (T.unpack $ encodeFP fn) ReadMode $
-        \handle -> do
-            size <- hFileSize handle
-            -- SeekFromEnd seems broken
-            hSeek handle AbsoluteSeek (max 0 (size - (1024*1024)))
-            BS8.hGetContents handle
-    case res of
-        Left err -> do
-            echo . T.pack $ "Failed reading from file: " <> show fn <> ", error: " <> show err
-            return Nothing
-        Right contents
-            | BS8.length contents == 0 -> do
-                  echo . T.pack $ "Empty data in file: " <> show fn
-                  return Nothing
-            | otherwise ->
-                  return $ Just
-                  $ Mail.Part "text/html; charset=utf-8" Mail.QuotedPrintableText (Just attachedFN) []
-                  (LE.encodeUtf8 ("<html><body><pre>" <> renderHtml (toHtml $ TE.decodeUtf8 contents) <> "</pre></body></html>"))
-
-isDryRun :: Options -> Proposal -> Bool
-isDryRun options proposal = optForceDryRun options || proposalDryRun proposal
-
-data IncludeAttachment = FullAttachment | MinimalAttachment
-data EmailType = ProposalSuccessEmail | ProposalFailureEmail | ProposalAttemptEmail
-
-addAttachments :: Maybe PrepushLogs -> IncludeAttachment -> Mail.Mail -> EShell Mail.Mail
-addAttachments prepushLogs includeAttachment mail =
-    case prepushLogs of
-        Nothing -> return mail
-        Just (PrepushLogs logDir fullLogOutputFile) -> do
-            logPart <- liftIO $ addAttachment fullLogOutputFile "logtail.html"
-            tarParts <- case includeAttachment of
-                MinimalAttachment -> return []
-                FullAttachment -> do
-                    let tarName = encodeFP logDir <> ".tgz"
-                    _tarOut <-
-                        eprocsL "bash" ["-o", "pipefail", "-c",
-                                        "tar czvf " <> tarName <> " " <> encodeFP logDir]
-                    content <- liftIO $ LBS.readFile $ T.unpack tarName
-                    return [Mail.Part "application/gzip" Mail.Base64 (Just tarName) [] content]
-            return $ Mail.addPart (maybe id (:) logPart tarParts) mail
-
-
-formatProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> IncludeAttachment -> EmailType -> EShell LBS.ByteString
-formatProposalEmail options proposal subject body prepushLogs includeAttachment emailType = do
-    webHref <- liftIO $ (<> (":" <> show (optWebServerPort options))) . ("http://" <>) <$> getHostName
-    let html = renderHtml $ do
-            H.p . H.b $ fromString $ T.unpack subject
-            body
-            case emailType of
-                ProposalAttemptEmail -> H.p $ H.a H.! A.href (H.preEscapedToValue webHref)  $ "Sling Server Status"
-                ProposalFailureEmail -> return ()
-                ProposalSuccessEmail -> return ()
-
-    mail1 <- liftIO $ Mail.simpleMail
-        (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
-        (Mail.Address Nothing $ formatEmail sourceEmail)
-        ((if isDryRun options proposal then "(dry run) " else "")
-         <> fromBranchName (proposalName proposal)
-         <> " (" <> formatProposal proposal <> ")")
-        ""
-        html
-        []
-
-    mail <- case emailType of
-        ProposalSuccessEmail -> return mail1
-        ProposalAttemptEmail -> return mail1
-        ProposalFailureEmail -> addAttachments prepushLogs includeAttachment mail1
-
-    liftIO $ Mail.renderMail' mail
-
-sendProposalEmail :: Options -> Proposal -> Text -> H.Html -> Maybe PrepushLogs -> EmailType -> EShell ()
-sendProposalEmail options proposal subject body prepushLogs emailType = do
-    let sendEmailWith includeAttachment = do
-            renderdBS <- formatProposalEmail options proposal subject body prepushLogs includeAttachment emailType
-            eprocsIn (head $ optEmailClient options) (tail (optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ LE.decodeUtf8 renderdBS)
-
-    eprint $ "Sending email (async) to: " <> formatEmail (proposalEmail proposal) <> " with subject: " <> subject
-    liftIO $ void $ forkIO $ runEShell $ do
-        sendEmailWith FullAttachment
-        `catchError`
-        \e -> do
-                eprint $ "Error while sending with attachment, will attempt to send without attachment: " <> (T.pack $ show e)
-                sendEmailWith MinimalAttachment
-
-    return ()
-
 
 clearCurrentProposal :: IORef CurrentState -> IO ()
 clearCurrentProposal currentState =
@@ -235,31 +128,6 @@ attemptBranchOrAbort :: ServerId -> IORef CurrentState -> Options -> PrepushCmd 
 attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = do
     dirPath <- FP.decodeString <$> liftIO (createTempDirectory "/tmp" "sling.log")
     attemptBranch serverId currentState options prepushCmd dirPath branch proposal `catchError` abortAttempt currentState options proposal
-
-htmlFormatCommit :: Maybe Text -> Git.LogEntry -> H.Html
-htmlFormatCommit urlPrefix l = do
-    let hashCol =
-            case join $ Git.githubCommitUrl (Git.logEntryFullHash l) <$> urlPrefix of
-                Nothing -> fromString . T.unpack $ fromHash $ Git.logEntryShortHash l
-                Just url -> H.a ! A.href (fromString $ T.unpack url) $ fromString . T.unpack $ fromHash $ Git.logEntryShortHash l
-    H.td hashCol
-    H.td $ fromString $ T.unpack $ Git.logEntryAuthor l
-    H.td $ fromString $ T.unpack $ Git.logEntryTitle l
-
-htmlFormatCommitLog :: [Git.LogEntry] -> Maybe Text -> H.Html
-htmlFormatCommitLog commits urlPrefix = do
-    H.p "Commits:"
-    H.table . H.tbody $ mapM_ (H.tr . htmlFormatCommit urlPrefix) commits
-
-proposalEmailHeader :: Options -> Proposal -> [Git.LogEntry] -> Maybe Text -> H.Html
-proposalEmailHeader options proposal commits baseUrl = do
-    H.p . H.b $ "Proposal"
-    H.p . fromString $ "Proposed by: " <> T.unpack (formatEmail . proposalEmail $ proposal)
-    H.p $ do
-        H.span "Onto branch: "
-        H.b (fromString . T.unpack . fromBranchName . proposalBranchOnto $ proposal)
-        when (isDryRun options proposal) $ H.span " (Dry run only, branch not moved)"
-    htmlFormatCommitLog commits baseUrl
 
 setStateProposal :: (Show a, Foldable t) => IORef CurrentState -> Proposal -> t a -> IO ()
 setStateProposal currentState proposal commits = do
@@ -415,7 +283,6 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
 
     liftIO $ setStateProposal currentState proposal commits
 
-    commitLogHtml <- proposalEmailHeader options proposal commits <$> Git.remoteUrl origin
     let title = if isDryRun options proposal
                 then "Running dry run"
                 else "Attempting to merge"
@@ -493,6 +360,7 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
                     `catchError` (const $ eprint "Can't delete proposal - Other slave took the job? Dropping" >> return False)
                 ProposalRejected -> error "ASSERTION FAILED! Shouldn't be taking rejected proposal"
             when jobTaken $ do
+                commitLogHtml <- formatCommitsForEmail options proposal commits <$> Git.remoteUrl origin
                 sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
                 runAttempt currentState options prepushCmd logDir proposalBranch proposal finalBase finalHead ontoBranchName
 
