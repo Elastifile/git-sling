@@ -15,7 +15,7 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Sling.Lib, Sling.Git, Sling.Proposal, Sling.Web
+  exposed-modules:     Sling.Lib, Sling.Git, Sling.Proposal, Sling.Web, Sling.Options
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
   build-depends:       Spock >= 0.10.0.1
                      , base >= 4.7 && < 5
@@ -25,6 +25,7 @@ library
                      , mime-mail >= 0.4.10
                      , mtl >= 2.2.1
                      , network >= 2.6.2.1
+                     , optparse-applicative >= 0.11.0.2
                      , system-filepath >= 0.4
                      , temporary >= 1.2.0.3
                      , text >= 1.2.1.3
