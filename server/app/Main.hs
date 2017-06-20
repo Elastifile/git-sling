@@ -15,7 +15,7 @@ import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..),
                                                 mkBranchName)
 import qualified Sling.Git as Git
-import           Sling.Lib                     (EShell, abort, eproc,
+import           Sling.Lib                     (EShell, abort, eproc, assert,
                                                 eprocsL, formatEmail, eprint,
                                                 ignoreError, runEShell)
 import qualified Sling as Sling
@@ -263,54 +263,65 @@ attemptBranch' serverId currentState options prepushCmd logDir proposalBranch pr
 
     -- note: 'nice' branch and 'onto' branch may be the same
     -- branch. (e.g. proposal called 'master' with onto=master)
+    remoteOntoBranchHash <- Git.refToHash (RefBranch $ RemoteBranch origin ontoBranchName)
 
-    -- sync local onto with remote
-    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
-    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
-    finalBaseHash <- Git.currentRefHash
-    let finalBase = Git.RefHash finalBaseHash
-        niceBranchName = proposalName proposal
+    let nicePrefix = if proposalName proposal == ontoBranchName
+                     then "_" -- to ensure niceBranchName never equals ontoBranchName
+                     else ""
+        niceBranchName = Git.mkBranchName $ nicePrefix <> (Git.fromBranchName $ proposalName proposal)
         niceBranch = LocalBranch niceBranchName
+        finalBase = Git.RefHash remoteOntoBranchHash
 
     -- create local work branch, reset to proposed
     withLocalBranch niceBranchName $ do
-        Git.reset Git.ResetHard headRef
-
-        -- rebase work onto target
-        Git.rebase Git.Rebase { Git.rebaseBase = baseRef,
-                                Git.rebaseOnto = remoteOnto,
-                                Git.rebasePolicy =
-                                      case proposalType proposal of
-                                          ProposalTypeMerge MergeTypeFlat       _ -> Git.RebaseDropMerges
-                                          ProposalTypeMerge MergeTypeKeepMerges _ -> Git.RebaseKeepMerges
-                                          ProposalTypeRebase{}                 -> Git.RebaseKeepMerges
-                              }
-            `catchError` (Sling.rejectProposal options origin (Git.branchName proposalBranch) proposal "Rebase failed" Nothing . Just)
-
-        -- rebase succeeded, we can now take this job
-
         case proposalType proposal of
-            ProposalTypeMerge{} -> do
-              isMerge <- Git.isMergeCommit (RefBranch niceBranch)
-              let mergeFF =
-                      if isMerge || (length commits == 1)
-                      then Git.MergeFFOnly
-                      else Git.MergeNoFF
-              -- go back to 'onto', decide whether to create a merge commit on
-              -- top (if we should merge ff only)
-              Git.checkout (RefBranch $ LocalBranch ontoBranchName)
-              Git.merge mergeFF niceBranch
-              when (mergeFF == Git.MergeNoFF) $
-                  Git.commitAmend (proposalEmail proposal) Git.RefHead
-              newHead <- Git.currentRef
-              -- Fast-forward the work branch to match the merged 'onto' we do
-              -- this so that the prepush script will see itself running on a
-              -- branch with the name the user gave to this proposal, and not
-              -- the onto branch's name.
-              Git.checkout (RefBranch niceBranch)
-              Git.reset Git.ResetHard newHead
+            ProposalTypeMerge _mergeType baseHash -> do
+                -- check that the proposal's base commit is exactly onto (should have been rebased by now):
+                fullBaseHash <- Git.unshortenHash baseHash
+                assert (==) fullBaseHash remoteOntoBranchHash
+                    . Just
+                    $ "Expected branch to be rebased already, but it isn't: "
+                    <> T.intercalate " " (map (T.pack . show) [ remoteOntoBranchHash, fullBaseHash ])
 
-            ProposalTypeRebase{} -> return () -- do nothing
+                -- point the working ('nice') branch to the proposal's head
+                Git.reset Git.ResetHard (RefBranch proposalBranch)
+
+                isMerge <- Git.isMergeCommit RefHead
+                let mergeFF =
+                        if isMerge || (length commits == 1)
+                        then Git.MergeFFOnly
+                        else Git.MergeNoFF
+                    localOntoBranch = RefBranch $ LocalBranch ontoBranchName
+                -- go back to 'onto', decide whether to create a merge commit on
+                -- top (if we should merge ff only)
+                Git.deleteLocalBranch ontoBranchName & ignoreError
+                Git.checkout localOntoBranch
+                Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
+
+                Git.merge mergeFF niceBranch
+                when (mergeFF == Git.MergeNoFF) $
+                    Git.commitAmend (proposalEmail proposal) Git.RefHead
+                newHead <- Git.currentRef
+
+                -- Fast-forward the work branch to match the merged 'onto' we do
+                -- this so that the prepush script will see itself running on a
+                -- branch with the name the user gave to this proposal, and not
+                -- the onto branch's name.
+                Git.checkout (RefBranch niceBranch)
+                Git.merge Git.MergeFFOnly (LocalBranch ontoBranchName)
+
+                headAfterFF <- Git.currentRef
+                assert (==) newHead headAfterFF $ Just "Expected to arrive at same commit"
+
+            ProposalTypeRebase branchToRebase -> do
+                Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin branchToRebase)
+                -- rebase target on onto
+                Git.rebase Git.Rebase { Git.rebaseBase = remoteOnto,
+                                        Git.rebaseOnto = remoteOnto,
+                                        Git.rebasePolicy = Git.RebaseKeepMerges
+                                      }
+                    `catchError` (Sling.rejectProposal options origin (Git.branchName proposalBranch) proposal "Rebase failed" Nothing . Just)
+                -- rebase succeeded, we can now take this job
 
         finalHead <- Git.currentRef
 
@@ -319,12 +330,7 @@ attemptBranch' serverId currentState options prepushCmd logDir proposalBranch pr
                 ProposalInProgress{} -> Git.PushForceWithoutLease -- can't use lease to create new branch. stupid git.
                 _                    -> Git.PushNonForce
 
-        let newProposalMove = case proposalType proposal of
-                ProposalTypeMerge mergeType _baseHash -> ProposalTypeMerge mergeType finalBaseHash
-                ProposalTypeRebase moveBranchName -> ProposalTypeRebase moveBranchName
-
-            inProgressBranchName = Proposal.toBranchName $ proposal { proposalStatus = ProposalInProgress serverId
-                                                               , proposalType = newProposalMove }
+            inProgressBranchName = Proposal.toBranchName $ proposal { proposalStatus = ProposalInProgress serverId }
         eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack (Git.fromBranchName inProgressBranchName)
 
         withNewBranch inProgressBranchName forceCreateInProgress $ do

@@ -113,11 +113,14 @@ status = map (singleMatch filePat) <$> git ["status", "--porcelain"]
 shortenHash :: Hash -> EShell Hash
 shortenHash h = hash . head <$> git ["rev-parse", "--short", fromHash h]
 
+unshortenHash :: Hash -> EShell Hash
+unshortenHash h = hash . head <$> git ["rev-parse", fromHash h]
+
 -- shortenRef :: Ref -> EShell Ref
 -- shortenRef = refTraverseHash shortenHash
 
 refToHash :: Ref -> EShell Hash
-refToHash ref = hash . head <$> git ["rev-parse", "--short", refName ref]
+refToHash ref = hash . head <$> git ["rev-parse", refName ref]
 
 class CmdLineOption c where
     optionToText :: c -> Text
