@@ -220,8 +220,8 @@ createLocalBranch name ref = do
     _ <- git ["checkout", "-b", fromBranchName name, refName ref]
     return $ LocalBranch name
 
-createRemoteTrackingBranch :: Remote -> BranchName -> PushType -> EShell Branch
-createRemoteTrackingBranch r name pushType = do
+pushRemoteTracking :: Remote -> BranchName -> PushType -> EShell Branch
+pushRemoteTracking r name pushType = do
     pushWith pushType ["-u", fromNonEmptyText $ remoteName r, fromBranchName name]
     return $ RemoteBranch r name
 

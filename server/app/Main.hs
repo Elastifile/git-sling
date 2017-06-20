@@ -118,7 +118,7 @@ rejectProposal options proposalBranch proposal reason prepushLogs err = do
     Git.deleteBranch (LocalBranch rejectBranchName) & ignoreError -- in case it exists
     Git.reset Git.ResetHard RefHead
     _ <- Git.createLocalBranch rejectBranchName RefHead
-    _ <- Git.createRemoteTrackingBranch origin rejectBranchName Git.PushForceWithoutLease
+    _ <- Git.pushRemoteTracking origin rejectBranchName Git.PushForceWithoutLease
     -- We have to be on another branch before deleting stuff, so arbitrarily picking rejected branch
     Git.checkout (Git.RefBranch $ LocalBranch rejectBranchName)
     Git.deleteBranch (LocalBranch $ Proposal.toBranchName proposal) & ignoreError
@@ -145,7 +145,7 @@ safeCreateBranch :: Git.BranchName -> Git.PushType -> EShell ()
 safeCreateBranch targetBranchName pushType = do
     Git.deleteLocalBranch targetBranchName & ignoreError
     _ <- Git.createLocalBranch targetBranchName RefHead
-    _ <- Git.createRemoteTrackingBranch origin targetBranchName pushType
+    _ <- Git.pushRemoteTracking origin targetBranchName pushType
     return ()
 
 deleteLocalAndRemote :: Git.BranchName -> EShell ()
