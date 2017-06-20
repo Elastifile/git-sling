@@ -96,7 +96,7 @@ derive makeArbitrary ''Proposal
 derive makeArbitrary ''Branch
 derive makeArbitrary ''Ref
 derive makeArbitrary ''MergeType
-derive makeArbitrary ''MoveBranch
+derive makeArbitrary ''ProposalType
 
 -- ----------------------------------------------------------------------
 

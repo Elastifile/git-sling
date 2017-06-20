@@ -183,12 +183,12 @@ withLocalBranch name act = do
 transitionProposalToTarget :: Options -> Git.Ref -> Proposal -> Prefix -> PrepushLogs -> EShell ()
 transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = do
     Git.RefHash shortBaseHash <- Git.shortenRef newBase
-    let moveBranch = case proposalMove proposal of
-                       MoveBranchOnto mergeType _oldBase -> MoveBranchOnto mergeType shortBaseHash
-                       MoveBranchProposed name -> MoveBranchProposed name
+    let moveBranch = case proposalType proposal of
+                       ProposalTypeMerge mergeType _oldBase -> ProposalTypeMerge mergeType shortBaseHash
+                       ProposalTypeRebase name -> ProposalTypeRebase name
 
         targetBranchName = Proposal.toBranchName $ proposal { proposalPrefix = Just targetPrefix
-                                                       , proposalMove = moveBranch
+                                                       , proposalType = moveBranch
                                                        , proposalStatus = ProposalProposed }
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack (Git.fromBranchName targetBranchName)
     when (targetBranchName == ontoBranchName)
@@ -206,12 +206,12 @@ transitionProposalToCompletion options finalHead proposal prepushLogs = do
     if isDryRun options proposal
     then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs) ProposalSuccessEmail
     else do
-        case proposalMove proposal of
-            MoveBranchOnto _mergeType _baseRef -> do
+        case proposalType proposal of
+            ProposalTypeMerge _mergeType _baseRef -> do
                 eprint $ "Updating: " <> Git.fromBranchName ontoBranchName
                 Git.checkout (RefBranch $ LocalBranch ontoBranchName)
                 Git.push
-            MoveBranchProposed name  -> do
+            ProposalTypeRebase name  -> do
                 eprint $ "Updating: " <> Git.fromBranchName name
                 Git.deleteLocalBranch name & ignoreError
                 Git.checkout (RefBranch $ LocalBranch name)
@@ -261,9 +261,9 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
     let ontoBranchName = proposalBranchOnto proposal
         remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
         (baseRef, headRef) =
-            case proposalMove proposal of
-              MoveBranchOnto _mergeType base -> (Git.RefHash base, RefBranch proposalBranch)
-              MoveBranchProposed name -> (remoteOnto, Git.RefBranch $ Git.RemoteBranch origin name)
+            case proposalType proposal of
+              ProposalTypeMerge _mergeType base -> (Git.RefHash base, RefBranch proposalBranch)
+              ProposalTypeRebase name -> (remoteOnto, Git.RefBranch $ Git.RemoteBranch origin name)
 
     -- cleanup leftover state from previous runs
     cleanupGit proposal
@@ -304,17 +304,17 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
         Git.rebase Git.Rebase { Git.rebaseBase = baseRef,
                                 Git.rebaseOnto = remoteOnto,
                                 Git.rebasePolicy =
-                                      case proposalMove proposal of
-                                          MoveBranchOnto MergeTypeFlat       _ -> Git.RebaseDropMerges
-                                          MoveBranchOnto MergeTypeKeepMerges _ -> Git.RebaseKeepMerges
-                                          MoveBranchProposed{}                 -> Git.RebaseKeepMerges
+                                      case proposalType proposal of
+                                          ProposalTypeMerge MergeTypeFlat       _ -> Git.RebaseDropMerges
+                                          ProposalTypeMerge MergeTypeKeepMerges _ -> Git.RebaseKeepMerges
+                                          ProposalTypeRebase{}                 -> Git.RebaseKeepMerges
                               }
             `catchError` (rejectProposal options proposalBranch proposal "Rebase failed" Nothing . Just)
 
         -- rebase succeeded, we can now take this job
 
-        case proposalMove proposal of
-            MoveBranchOnto{} -> do
+        case proposalType proposal of
+            ProposalTypeMerge{} -> do
               isMerge <- Git.isMergeCommit (RefBranch niceBranch)
               let mergeFF =
                       if isMerge || (length commits == 1)
@@ -334,7 +334,7 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
               Git.checkout (RefBranch niceBranch)
               Git.reset Git.ResetHard newHead
 
-            MoveBranchProposed{} -> return () -- do nothing
+            ProposalTypeRebase{} -> return () -- do nothing
 
         finalHead <- Git.currentRef
 
@@ -343,12 +343,12 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
                 ProposalInProgress{} -> Git.PushForceWithoutLease -- can't use lease to create new branch. stupid git.
                 _                    -> Git.PushNonForce
 
-        let newProposalMove = case proposalMove proposal of
-                MoveBranchOnto mergeType _baseHash -> MoveBranchOnto mergeType finalBaseHash
-                MoveBranchProposed moveBranchName -> MoveBranchProposed moveBranchName
+        let newProposalMove = case proposalType proposal of
+                ProposalTypeMerge mergeType _baseHash -> ProposalTypeMerge mergeType finalBaseHash
+                ProposalTypeRebase moveBranchName -> ProposalTypeRebase moveBranchName
 
             inProgressBranchName = Proposal.toBranchName $ proposal { proposalStatus = ProposalInProgress serverId
-                                                               , proposalMove = newProposalMove }
+                                                               , proposalType = newProposalMove }
         eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack (Git.fromBranchName inProgressBranchName)
 
         withNewBranch inProgressBranchName forceCreateInProgress $ do
