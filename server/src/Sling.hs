@@ -53,32 +53,60 @@ verifyProposal options remote proposal = do
 -- Rebases given proposal over latest known state of its target branch
 -- and pushes it to the remote.
 -- If the rebase fails, rejects the proposal.
-rebaseProposal :: Options -> Git.Remote -> Proposal -> EShell ()
-rebaseProposal options remote proposal = do
+updateProposal :: Options -> Git.Remote -> (Git.Branch, Proposal) -> EShell (Maybe (Git.Branch, Proposal))
+updateProposal options remote (proposalBranch, proposal) = do
     verifyProposal options remote proposal
-    rebaseProposal' options remote proposal
+    updateProposal' options remote (proposalBranch, proposal)
 
-rebaseProposal' :: Options -> Git.Remote -> Proposal -> EShell ()
-rebaseProposal' options remote proposal =
+updateProposal' :: Options -> Git.Remote -> (Git.Branch, Proposal) -> EShell (Maybe (Git.Branch, Proposal))
+updateProposal' options remote (proposalBranch, proposal) =
     case Proposal.proposalType proposal of
-        Proposal.ProposalTypeRebase{} -> return ()
-        Proposal.ProposalTypeMerge mergeType baseHash -> Git.withTempLocalBranch $ \_tempBranchName -> do
+        Proposal.ProposalTypeRebase{} -> return $ Just (proposalBranch, proposal) -- nothing to update
+        Proposal.ProposalTypeMerge mergeType origBaseHash -> Git.withTempLocalBranch $ \tempBranchName -> do
             let proposalBranchName = Proposal.toBranchName proposal
-                remoteProposalBranch = Git.RefBranch $ Git.RemoteBranch remote $ proposalBranchName
                 ontoBranchName = Proposal.proposalBranchOnto proposal
-                remoteOntoBranch = Git.RefBranch $ Git.RemoteBranch remote $ ontoBranchName
-                rebasePolicy = case mergeType of
-                    Proposal.MergeTypeFlat -> Git.RebaseDropMerges
-                    Proposal.MergeTypeKeepMerges -> Git.RebaseKeepMerges
+                remoteOntoBranch = Git.RemoteBranch remote $ ontoBranchName
 
-            Git.deleteLocalBranch proposalBranchName & ignoreError
-            _ <- Git.createLocalBranch proposalBranchName Git.RefHead
-            Git.reset Git.ResetHard remoteProposalBranch
+            newBaseHash <- Git.refToHash $ Git.RefBranch remoteOntoBranch
+            newBaseShortHash <- Git.shortenHash newBaseHash
+            let updatedProposal = proposal { Proposal.proposalType = Proposal.ProposalTypeMerge mergeType newBaseShortHash }
+                updatedProposalBranchName = Proposal.toBranchName updatedProposal
 
-            Git.rebase Git.Rebase { Git.rebaseBase = Git.RefHash baseHash
-                                  , Git.rebaseOnto = remoteOntoBranch
-                                  , Git.rebasePolicy = rebasePolicy }
-                `catchError` (\e -> rejectProposal options remote proposalBranchName proposal "Rebase failed" Nothing (Just e))
-            createdRemoteBranch <- Git.pushRemoteTracking remote proposalBranchName Git.PushForceWithLease
-            assert (==) (Git.RefBranch createdRemoteBranch) remoteProposalBranch Nothing
+            if (updatedProposalBranchName == proposalBranchName)
+            then return $ Just (proposalBranch, proposal) -- nothing to do
+            else do
+                let remoteProposalBranch = Git.RefBranch $ Git.RemoteBranch remote $ proposalBranchName
+                    rebasePolicy = case mergeType of
+                        Proposal.MergeTypeFlat -> Git.RebaseDropMerges
+                        Proposal.MergeTypeKeepMerges -> Git.RebaseKeepMerges
+
+                Git.reset Git.ResetHard remoteProposalBranch
+                Git.rebase Git.Rebase { Git.rebaseBase = Git.RefHash origBaseHash
+                                      , Git.rebaseOnto = Git.RefBranch $ remoteOntoBranch
+                                      , Git.rebasePolicy = rebasePolicy }
+                    `catchError` (\e -> rejectProposal options remote proposalBranchName proposal "Rebase failed" Nothing (Just e))
+
+                -- create updated proposal branch
+                Git.deleteLocalBranch updatedProposalBranchName & ignoreError
+                _ <- Git.createLocalBranch updatedProposalBranchName Git.RefHead
+
+                createdRemoteBranch <- Git.pushRemoteTracking remote updatedProposalBranchName Git.PushForceWithLease
+                assert (==) createdRemoteBranch (Git.RemoteBranch remote updatedProposalBranchName) Nothing
+
+                Git.checkout (Git.RefBranch $ Git.LocalBranch tempBranchName)
+                Git.deleteLocalBranch updatedProposalBranchName
+
+                -- Concurrency issues here:
+
+                -- If deleting the (not-updated) proposal fails, then possibly someone else already deleted the proposal,
+                -- 1. Either because a user wanted to cancel this proposal,
+                -- 2. Or, they were also rebasing it (like this function)
+                -- 3. Or, they were rejecting it because it failed rebase (which didn't fail for us because our remote is outdated)
+                -- 4. Or, the proposal was marked as 'in progress'
+
+                -- In any case, deleting the proposal serves as a 'commit' for operations on it, so someone else beat us to
+                -- it and we must undo our actions above which are just creating a new branch of the updated proposal.
+
+                Git.deleteRemoteBranch remote proposalBranchName >> return (Just (createdRemoteBranch, updatedProposal))
+                    `catchError` (\_ -> Git.deleteRemoteBranch remote updatedProposalBranchName >> return Nothing)
 

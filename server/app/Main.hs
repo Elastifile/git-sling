@@ -159,14 +159,15 @@ withLocalBranch name act = do
 
 transitionProposalToTarget :: Options -> Git.Ref -> Proposal -> Prefix -> PrepushLogs -> EShell ()
 transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = do
-    Git.RefHash shortBaseHash <- Git.shortenRef newBase
-    let moveBranch = case proposalType proposal of
-                       ProposalTypeMerge mergeType _oldBase -> ProposalTypeMerge mergeType shortBaseHash
-                       ProposalTypeRebase name -> ProposalTypeRebase name
+    newBaseHash <- Git.refToHash newBase
+    shortBaseHash <- Git.shortenHash newBaseHash
+    let updatedProposalType = case proposalType proposal of
+            ProposalTypeMerge mergeType _oldBase -> ProposalTypeMerge mergeType shortBaseHash
+            ProposalTypeRebase name -> ProposalTypeRebase name
 
         targetBranchName = Proposal.toBranchName $ proposal { proposalPrefix = Just targetPrefix
-                                                       , proposalType = moveBranch
-                                                       , proposalStatus = ProposalProposed }
+                                                            , proposalType = updatedProposalType
+                                                            , proposalStatus = ProposalProposed }
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack (Git.fromBranchName targetBranchName)
     when (targetBranchName == ontoBranchName)
         $ abort $ "Can't handle branch, onto == target: " <> (Git.fromBranchName targetBranchName)
@@ -238,9 +239,14 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
     -- cleanup leftover state from previous runs
     cleanupGit proposal
 
-    Sling.verifyProposal options origin proposal
-
-    attemptBranch' serverId currentState options prepushCmd logDir proposalBranch proposal
+    mUpdatedProposal <- Sling.updateProposal options origin (proposalBranch, proposal)
+    case mUpdatedProposal of
+        Nothing -> do
+            -- The proposal was deleted while we were working on it. Forget about it.
+            eprint "Other slave took the job or proposal deleted? Dropping"
+            return ()
+        Just (updatedProposalBranch, updatedProposal) ->
+            attemptBranch' serverId currentState options prepushCmd logDir updatedProposalBranch updatedProposal
 
 attemptBranch' :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal -> EShell ()
 attemptBranch' serverId currentState options prepushCmd logDir proposalBranch proposal = do
@@ -326,12 +332,13 @@ attemptBranch' serverId currentState options prepushCmd logDir proposalBranch pr
         eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack (Git.fromBranchName inProgressBranchName)
 
         withNewBranch inProgressBranchName forceCreateInProgress $ do
-            eprint "Deleting proposal branch..."
             jobTaken <- case proposalStatus proposal of
-                ProposalInProgress{} -> return True
-                ProposalProposed{} -> (Git.deleteBranch proposalBranch >> return True)
-                    `catchError` (const $ eprint "Can't delete proposal - Other slave took the job? Dropping" >> return False)
                 ProposalRejected -> error "ASSERTION FAILED! Shouldn't be taking rejected proposal"
+                ProposalInProgress{} | inProgressBranchName == (Git.branchName proposalBranch) -> return True
+                _ -> do
+                    eprint "Deleting proposal branch..."
+                    (Git.deleteBranch proposalBranch >> return True)
+                        `catchError` (const $ eprint "Can't delete proposal - Other slave took the job? Dropping" >> return False)
             when jobTaken $ do
                 commitLogHtml <- formatCommitsForEmail options proposal commits <$> Git.remoteUrl origin
                 sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
