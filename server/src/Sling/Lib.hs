@@ -2,6 +2,7 @@
 module Sling.Lib where
 
 import System.Exit (exitWith)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import           Control.Monad.Trans.Either (EitherT, left, mapEitherT,
                                              runEitherT)
@@ -109,6 +110,9 @@ ignoreError act = sh $ do
 
 someText :: Pattern Text
 someText = T.pack <$> some anyChar
+
+assert :: (a -> b -> Bool) -> a -> b -> Maybe Text -> EShell ()
+assert f a b e = when (not $ f a b) $ abort ("ASSERTION FAILED: " <> maybe "" id e)
 
 -- ----------------------------------------------------------------------
 
