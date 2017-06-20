@@ -235,20 +235,21 @@ attemptBranch :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> File
 attemptBranch serverId currentState options prepushCmd logDir proposalBranch proposal = do
     cleanupBranches -- remove leftover branches
     Git.fetch
+    -- cleanup leftover state from previous runs
+    cleanupGit proposal
+
+    Sling.verifyProposal options origin proposal
+
+    attemptBranch' serverId currentState options prepushCmd logDir proposalBranch proposal
+
+attemptBranch' :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal -> EShell ()
+attemptBranch' serverId currentState options prepushCmd logDir proposalBranch proposal = do
     let ontoBranchName = proposalBranchOnto proposal
         remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
         (baseRef, headRef) =
             case proposalType proposal of
               ProposalTypeMerge _mergeType base -> (Git.RefHash base, RefBranch proposalBranch)
               ProposalTypeRebase name -> (remoteOnto, Git.RefBranch $ Git.RemoteBranch origin name)
-
-    -- cleanup leftover state from previous runs
-    cleanupGit proposal
-
-    Sling.verifyProposal options origin proposal
-
-    let niceBranchName = proposalName proposal
-        niceBranch = LocalBranch niceBranchName
 
     commits <- Git.log baseRef headRef -- must be done after we verify the remote branch exists
 
@@ -266,6 +267,8 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
     finalBaseHash <- Git.currentRefHash
     let finalBase = Git.RefHash finalBaseHash
+        niceBranchName = proposalName proposal
+        niceBranch = LocalBranch niceBranchName
 
     -- create local work branch, reset to proposed
     withLocalBranch niceBranchName $ do
