@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Sling where
 
+import           Control.Monad (unless)
 import           Control.Monad.Except (MonadError (..))
 import           Data.Monoid ((<>))
 import           Data.Text              (Text)
@@ -39,23 +40,41 @@ rejectProposal options remote origBranchName proposal reason prepushLogs err = d
     Git.deleteBranch (Git.RemoteBranch remote origBranchName)
     abort "Rejected"
 
+-- Checks that the proposal is valid (e.g. the onto branch still actually exists on the remote)
+verifyProposal :: Options -> Git.Remote -> Proposal -> EShell ()
+verifyProposal options remote proposal = do
+    let ontoBranchName = Proposal.proposalBranchOnto proposal
+        proposalBranchName = Proposal.toBranchName proposal
+    remoteBranches <- Git.remoteBranches
+    unless ((remote, ontoBranchName) `elem` remoteBranches)
+        $ Sling.rejectProposal options remote proposalBranchName proposal ("Remote branch doesn't exist: " <> Git.fromBranchName ontoBranchName) Nothing Nothing
+    -- TODO: Add check that base hash (for merge proposals) is in range of commits that makes sense
+
 -- Rebases given proposal over latest known state of its target branch
 -- and pushes it to the remote.
 -- If the rebase fails, rejects the proposal.
 rebaseProposal :: Options -> Git.Remote -> Proposal -> EShell ()
-rebaseProposal options remote proposal =
+rebaseProposal options remote proposal = do
+    verifyProposal options remote proposal
+    rebaseProposal' options remote proposal
+
+rebaseProposal' :: Options -> Git.Remote -> Proposal -> EShell ()
+rebaseProposal' options remote proposal =
     case Proposal.proposalType proposal of
         Proposal.ProposalTypeRebase{} -> return ()
         Proposal.ProposalTypeMerge mergeType baseHash -> Git.withTempLocalBranch $ \_tempBranchName -> do
             let proposalBranchName = Proposal.toBranchName proposal
                 remoteProposalBranch = Git.RefBranch $ Git.RemoteBranch remote $ proposalBranchName
-                remoteOntoBranch = Git.RefBranch $ Git.RemoteBranch remote $ Proposal.proposalBranchOnto proposal
+                ontoBranchName = Proposal.proposalBranchOnto proposal
+                remoteOntoBranch = Git.RefBranch $ Git.RemoteBranch remote $ ontoBranchName
                 rebasePolicy = case mergeType of
                     Proposal.MergeTypeFlat -> Git.RebaseDropMerges
                     Proposal.MergeTypeKeepMerges -> Git.RebaseKeepMerges
+
             Git.deleteLocalBranch proposalBranchName & ignoreError
             _ <- Git.createLocalBranch proposalBranchName Git.RefHead
             Git.reset Git.ResetHard remoteProposalBranch
+
             Git.rebase Git.Rebase { Git.rebaseBase = Git.RefHash baseHash
                                   , Git.rebaseOnto = remoteOntoBranch
                                   , Git.rebasePolicy = rebasePolicy }

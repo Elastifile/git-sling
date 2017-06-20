@@ -3,7 +3,7 @@
 {-# LANGUAGE TupleSections     #-}
 module Main where
 
-import           Control.Monad (when, unless, void, forM_)
+import           Control.Monad (when, void, forM_)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
 import           Data.IORef
@@ -245,16 +245,10 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
     -- cleanup leftover state from previous runs
     cleanupGit proposal
 
-    remoteBranches <- Git.remoteBranches
+    Sling.verifyProposal options origin proposal
 
     let niceBranchName = proposalName proposal
         niceBranch = LocalBranch niceBranchName
-        verifyRemoteBranch :: (Git.Remote, Git.BranchName) -> EShell ()
-        verifyRemoteBranch rb =
-            unless (rb `elem` remoteBranches)
-            $ Sling.rejectProposal options origin (Git.branchName proposalBranch) proposal ("Remote branch doesn't exist: " <> Git.fromBranchName ontoBranchName) Nothing Nothing
-
-    verifyRemoteBranch (origin, ontoBranchName)
 
     commits <- Git.log baseRef headRef -- must be done after we verify the remote branch exists
 
