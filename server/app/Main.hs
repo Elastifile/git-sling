@@ -30,7 +30,7 @@ import qualified Sling.Proposal as Proposal
 import           Sling.Email (sendProposalEmail, formatCommitsForEmail, EmailType(..))
 import           Sling.Web (forkServer, CurrentState(..), emptyCurrentState)
 import           Text.Regex.Posix ((=~))
-import           Turtle (ExitCode, (&), echo)
+import           Turtle (ExitCode, (&))
 
 import qualified Data.List as List
 
@@ -107,16 +107,16 @@ attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = 
     dirPath <- FP.decodeString <$> liftIO (createTempDirectory "/tmp" "sling.log")
     attemptBranch serverId currentState options prepushCmd dirPath branch proposal `catchError` abortAttempt currentState options proposal
 
-setStateProposal :: (Show a, Foldable t) => IORef CurrentState -> Proposal -> t a -> IO ()
+setStateProposal :: (Show a, Foldable t) => IORef CurrentState -> Proposal -> t a -> EShell ()
 setStateProposal currentState proposal commits = do
-    time <- getPOSIXTime
-    modifyIORef currentState $ \state ->
+    time <- liftIO $ getPOSIXTime
+    liftIO $ modifyIORef currentState $ \state ->
         state
         { csCurrentProposal = Just (proposal, time)
         }
-    echo $ "Attempting proposal: " <> formatProposal proposal
-    echo "Commits: "
-    mapM_ print commits
+    eprint $ "Attempting proposal: " <> formatProposal proposal
+    eprint "Commits: "
+    mapM_ (eprint . T.pack . show) commits
 
 safeCreateBranch :: Git.BranchName -> Git.PushType -> EShell ()
 safeCreateBranch targetBranchName pushType = do
@@ -259,11 +259,7 @@ attemptBranch' serverId currentState options prepushCmd logDir proposalBranch pr
 
     commits <- Git.log baseRef headRef -- must be done after we verify the remote branch exists
 
-    liftIO $ setStateProposal currentState proposal commits
-
-    let title = if isDryRun options proposal
-                then "Running dry run"
-                else "Attempting to merge"
+    setStateProposal currentState proposal commits
 
     -- note: 'nice' branch and 'onto' branch may be the same
     -- branch. (e.g. proposal called 'master' with onto=master)
@@ -341,6 +337,9 @@ attemptBranch' serverId currentState options prepushCmd logDir proposalBranch pr
                         `catchError` (const $ eprint "Can't delete proposal - Other slave took the job? Dropping" >> return False)
             when jobTaken $ do
                 commitLogHtml <- formatCommitsForEmail options proposal commits <$> Git.remoteUrl origin
+                let title = if isDryRun options proposal
+                            then "Running dry run"
+                            else "Attempting to merge"
                 sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
                 runAttempt currentState options prepushCmd logDir (Git.branchName proposalBranch) proposal finalBase finalHead ontoBranchName
 
