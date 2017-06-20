@@ -15,7 +15,7 @@ import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..),
                                                 mkBranchName)
 import qualified Sling.Git as Git
-import           Sling.Lib                     (EShell, Hash, abort, eproc, assert,
+import           Sling.Lib                     (EShell, abort, eproc,
                                                 eprocsL, formatEmail, eprint,
                                                 ignoreError, runEShell)
 import qualified Sling as Sling
@@ -27,7 +27,7 @@ import           Sling.Path (encodeFP)
 import           Sling.Prepush (PrepushLogs(..))
 import           Sling.Proposal
 import qualified Sling.Proposal as Proposal
-import           Sling.Email (sendProposalEmail, formatCommitsForEmail, EmailType(..))
+import           Sling.Email (sendProposalEmail, EmailType(..))
 import           Sling.Web (forkServer, CurrentState(..), emptyCurrentState)
 import           Text.Regex.Posix ((=~))
 import           Turtle (ExitCode, (&))
@@ -48,14 +48,6 @@ import           Prelude hiding (FilePath)
 
 pollingInterval :: Int
 pollingInterval = 1000000 * 10
-
-data Job
-    = Job
-    { jobProposal :: Proposal
-    , jobInProgressBranchName :: Git.BranchName
-    , jobBase :: Ref
-    , jobHead :: Ref
-    } deriving (Show)
 
 runPrepush :: PrepushLogs -> PrepushCmd -> Ref -> Ref -> EShell ()
 runPrepush (PrepushLogs logDir logFile) (PrepushCmd cmd) baseR headR = do
@@ -112,10 +104,18 @@ slingBranchName (Just prefix) suffix = mkBranchName $ prefixToText prefix <> suf
 
 attemptBranchOrAbort :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Branch -> Proposal -> EShell ()
 attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = do
-    job' <- tryTakeJob serverId currentState options (branch, proposal)
+    cleanupBranches -- remove leftover branches
+    Git.fetch
+    -- cleanup leftover state from previous runs
+    cleanupGit proposal
+
+    job' <- Sling.tryTakeJob serverId options origin (branch, proposal)
     case job' of
         Nothing -> return () -- ignore
         Just job -> do
+            commits <- Git.log (Sling.jobBase job) (Sling.jobHead job)
+            setStateProposal currentState proposal commits
+
             dirPath <- FP.decodeString <$> liftIO (createTempDirectory "/tmp" "sling.log")
             runAttempt currentState options prepushCmd dirPath job
             `catchError` abortAttempt currentState options proposal
@@ -142,31 +142,6 @@ deleteLocalAndRemote :: Git.BranchName -> EShell ()
 deleteLocalAndRemote b = do
     Git.deleteBranch (Git.LocalBranch b)
     Git.deleteBranch (RemoteBranch origin b)
-
-withNewBranch :: Git.BranchName -> Git.PushType -> EShell a -> EShell a
-withNewBranch b pushType act = do
-    currentRef <- Git.currentRef
-    safeCreateBranch b pushType
-    let cleanup = do
-            Git.checkout currentRef
-            deleteLocalAndRemote b
-    res <- act `catchError` (\e -> cleanup >> throwError e)
-    return res
-
-withLocalBranch :: Git.BranchName -> EShell a -> EShell a
-withLocalBranch name act = do
-    currentRef <- Git.currentRef
-    Git.deleteBranch branch & ignoreError
-    Git.localBranches >>= (liftIO . mapM_ print)
-    shouldCreate <- not . elem name <$> Git.localBranches
-    when shouldCreate $ void $ Git.createLocalBranch name RefHead
-    Git.checkout (RefBranch branch)
-    let cleanup = do
-            Git.checkout currentRef
-            when shouldCreate $ Git.deleteBranch branch
-    res <- act `catchError` (\e -> cleanup >> throwError e)
-    return res
-    where branch = LocalBranch name
 
 transitionProposalToTarget :: Options -> Git.Ref -> Proposal -> Prefix -> PrepushLogs -> EShell ()
 transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = do
@@ -218,8 +193,8 @@ transitionProposal options finalBase finalHead proposal prepushLogs =
         Just targetPrefix -> transitionProposalToTarget options finalBase proposal targetPrefix prepushLogs
 
 runAttempt ::
-    IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Job -> EShell ()
-runAttempt currentState options prepushCmd logDir (Job proposal inProgressBranchName finalBase finalHead) = do
+    IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Sling.Job -> EShell ()
+runAttempt currentState options prepushCmd logDir (Sling.Job proposal inProgressBranchName finalBase finalHead) = do
     -- DO IT!
     logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
     let prepushLogs = PrepushLogs logDir (FP.fromText logFileName)
@@ -239,127 +214,6 @@ runAttempt currentState options prepushCmd logDir (Job proposal inProgressBranch
     deleteLocalAndRemote inProgressBranchName
 
     eprint $ "Finished handling proposal " <> (formatProposal proposal)
-
-
-tryTakeJob :: ServerId -> IORef CurrentState -> Options -> (Branch, Proposal) -> EShell (Maybe Job)
-tryTakeJob serverId currentState options (proposalBranch, proposal) = do
-    cleanupBranches -- remove leftover branches
-    Git.fetch
-    -- cleanup leftover state from previous runs
-    cleanupGit proposal
-
-    mUpdatedProposal <- Sling.updateProposal options origin (proposalBranch, proposal)
-    case mUpdatedProposal of
-        Nothing -> do
-            -- The proposal was deleted while we were working on it. Forget about it.
-            eprint "Other slave took the job or proposal deleted? Dropping"
-            return Nothing
-        Just (updatedProposalBranch, updatedProposal) -> do
-            tryTakeJob' serverId currentState options updatedProposalBranch updatedProposal
-
-prepareMergeProposal :: Branch -> Proposal -> Hash -> Branch -> EShell ()
-prepareMergeProposal proposalBranch proposal baseHash niceBranch = do
-    let ontoBranchName = proposalBranchOnto proposal
-    -- note: 'nice' branch and 'onto' branch may be the same
-    -- branch. (e.g. proposal called 'master' with onto=master)
-    remoteOntoBranchHash <- Git.refToHash (RefBranch $ RemoteBranch origin ontoBranchName)
-    -- check that the proposal's base commit is exactly onto (should have been rebased by now):
-    fullBaseHash <- Git.unshortenHash baseHash
-    assert (==) fullBaseHash remoteOntoBranchHash
-        . Just
-        $ "Expected branch to be rebased already, but it isn't: "
-        <> T.intercalate " " (map (T.pack . show) [ remoteOntoBranchHash, fullBaseHash ])
-    -- point the working ('nice') branch to the proposal's head
-    Git.reset Git.ResetHard (RefBranch proposalBranch)
-    isMerge <- Git.isMergeCommit RefHead
-    commits <- Git.log (Git.RefHash fullBaseHash) RefHead
-    let mergeFF =
-            if isMerge || (length commits == 1)
-            then Git.MergeFFOnly
-            else Git.MergeNoFF
-    -- go back to 'onto', decide whether to create a merge commit on
-    -- top (if we should merge ff only)
-    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
-    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
-    Git.merge mergeFF niceBranch
-    when (mergeFF == Git.MergeNoFF) $
-        Git.commitAmend (proposalEmail proposal) Git.RefHead
-    newHead <- Git.currentRef
-    -- Fast-forward the work branch to match the merged 'onto' we do
-    -- this so that the prepush script will see itself running on a
-    -- branch with the name the user gave to this proposal, and not
-    -- the onto branch's name.
-    Git.checkout (RefBranch niceBranch)
-    Git.merge Git.MergeFFOnly (LocalBranch ontoBranchName)
-    headAfterFF <- Git.currentRef
-    assert (==) newHead headAfterFF $ Just "Expected to arrive at same commit"
-
-tryTakeJob' :: ServerId -> IORef CurrentState -> Options -> Branch -> Proposal -> EShell (Maybe Job)
-tryTakeJob' serverId currentState options proposalBranch proposal = do
-    let ontoBranchName = proposalBranchOnto proposal
-        remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
-        (baseRef, headRef) =
-            case proposalType proposal of
-              ProposalTypeMerge _mergeType base -> (Git.RefHash base, RefBranch proposalBranch)
-              ProposalTypeRebase name -> (remoteOnto, Git.RefBranch $ Git.RemoteBranch origin name)
-
-    commits <- Git.log baseRef headRef -- must be done after we verify the remote branch exists
-
-    setStateProposal currentState proposal commits
-
-    remoteOntoBranchHash <- Git.refToHash (RefBranch $ RemoteBranch origin ontoBranchName)
-    let nicePrefix = if proposalName proposal == ontoBranchName
-                     then "_" -- to ensure niceBranchName never equals ontoBranchName
-                     else ""
-        niceBranchName = Git.mkBranchName $ nicePrefix <> (Git.fromBranchName $ proposalName proposal)
-        niceBranch = LocalBranch niceBranchName
-        finalBase = Git.RefHash remoteOntoBranchHash
-
-    -- create local work branch, reset to proposed
-    withLocalBranch niceBranchName $ do
-        case proposalType proposal of
-            ProposalTypeMerge _mergeType baseHash ->
-                prepareMergeProposal proposalBranch proposal baseHash niceBranch
-
-            ProposalTypeRebase branchToRebase -> do
-                Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin branchToRebase)
-                -- rebase target on onto
-                Git.rebase Git.Rebase { Git.rebaseBase = remoteOnto,
-                                        Git.rebaseOnto = remoteOnto,
-                                        Git.rebasePolicy = Git.RebaseKeepMerges
-                                      }
-                    `catchError` (Sling.rejectProposal options origin (Git.branchName proposalBranch) proposal "Rebase failed" Nothing . Just)
-                -- rebase succeeded, we can now take this job
-
-        finalHead <- Git.currentRef
-
-        eprint "Switching to (new) in-progress branch"
-        let forceCreateInProgress = case proposalStatus proposal of
-                ProposalInProgress{} -> Git.PushForceWithoutLease -- can't use lease to create new branch. stupid git.
-                _                    -> Git.PushNonForce
-
-            inProgressBranchName = Proposal.toBranchName $ proposal { proposalStatus = ProposalInProgress serverId }
-        eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack (Git.fromBranchName inProgressBranchName)
-
-        withNewBranch inProgressBranchName forceCreateInProgress $ do
-            Git.deleteLocalBranch niceBranchName
-            jobTaken <- case proposalStatus proposal of
-                ProposalRejected -> error "ASSERTION FAILED! Shouldn't be taking rejected proposal"
-                ProposalInProgress{} | inProgressBranchName == (Git.branchName proposalBranch) -> return True
-                _ -> do
-                    eprint "Deleting proposal branch..."
-                    (Git.deleteBranch proposalBranch >> return True)
-                        `catchError` (const $ eprint "Can't delete proposal - Other slave took the job? Dropping" >> return False)
-            case jobTaken of
-                True -> do
-                    commitLogHtml <- formatCommitsForEmail options proposal commits <$> Git.remoteUrl origin
-                    let title = if isDryRun options proposal
-                                then "Running dry run"
-                                else "Attempting to merge"
-                    sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
-                    return . Just $ Job proposal inProgressBranchName finalBase finalHead
-                False -> return Nothing
-
 
 usage :: String
 usage = List.intercalate "\n"
