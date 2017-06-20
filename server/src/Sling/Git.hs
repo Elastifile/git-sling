@@ -64,9 +64,9 @@ refTraverseHash _ RefHead = pure RefHead
 refTraverseHash f (RefHash h) = RefHash <$> f h
 refTraverseHash f (RefParent r n) = flip RefParent n <$> refTraverseHash f r
 
-branchName :: Branch -> Text
-branchName (LocalBranch n) = fromBranchName n
-branchName (RemoteBranch _ n) = fromBranchName n
+branchName :: Branch -> BranchName
+branchName (LocalBranch n) = n
+branchName (RemoteBranch _ n) = n
 
 branchFullName :: Branch -> Text
 branchFullName (LocalBranch n) = fromBranchName n

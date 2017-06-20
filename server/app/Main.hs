@@ -12,12 +12,13 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Sling.Git                     (Branch (..), Ref (..),
-                                                Remote (..), branchName,
+                                                Remote (..),
                                                 mkBranchName)
 import qualified Sling.Git as Git
 import           Sling.Lib                     (EShell, abort, eproc,
                                                 eprocsL, formatEmail, eprint,
                                                 ignoreError, runEShell)
+import qualified Sling as Sling
 import           Sling.Options (parseOpts, isDryRun,
                                 OptServerId(..), PrepushCmd(..), CommandType(..),
                                 PrepushMode(..),
@@ -39,7 +40,6 @@ import qualified Filesystem.Path.CurrentOS as FP
 import           Filesystem.Path.CurrentOS (FilePath)
 
 import           System.IO.Temp (createTempDirectory)
-import           Text.Blaze.Html (toHtml)
 import qualified Text.Blaze.Html5 as H
 import           Control.Concurrent (threadDelay)
 import           Options.Applicative
@@ -101,29 +101,6 @@ abortAttempt currentState options proposal (msg, _err) = do
 slingBranchName :: Maybe Prefix -> Text -> Git.BranchName
 slingBranchName Nothing suffix = mkBranchName suffix
 slingBranchName (Just prefix) suffix = mkBranchName $ prefixToText prefix <> suffix
-
-rejectProposal :: Options -> Branch -> Proposal -> Text -> Maybe PrepushLogs -> Maybe (Text, ExitCode) -> EShell ()
-rejectProposal options proposalBranch proposal reason prepushLogs err = do
-    let rejectedProposal = proposal { proposalStatus = ProposalRejected }
-        rejectBranchName = Proposal.toBranchName rejectedProposal
-        origBranchName = Git.branchName proposalBranch
-        suffix = case err of
-            Just (msg, errCode) -> " because: '" <> reason <> "' (" <> msg <> "), exit code = " <> T.pack (show errCode)
-            Nothing -> ""
-        msgBody = "REJECT " <> origBranchName <> suffix
-    eprint $ msgBody
-    sendProposalEmail options proposal ("Rejecting (" <> reason <> ")") (toHtml msgBody) prepushLogs ProposalFailureEmail
-    Git.fetch & ignoreError
-    Git.deleteBranch (RemoteBranch origin rejectBranchName) & ignoreError -- in case it exists
-    Git.deleteBranch (LocalBranch rejectBranchName) & ignoreError -- in case it exists
-    Git.reset Git.ResetHard RefHead
-    _ <- Git.createLocalBranch rejectBranchName RefHead
-    _ <- Git.pushRemoteTracking origin rejectBranchName Git.PushForceWithoutLease
-    -- We have to be on another branch before deleting stuff, so arbitrarily picking rejected branch
-    Git.checkout (Git.RefBranch $ LocalBranch rejectBranchName)
-    Git.deleteBranch (LocalBranch $ Proposal.toBranchName proposal) & ignoreError
-    Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
-    abort "Rejected"
 
 attemptBranchOrAbort :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Branch -> Proposal -> EShell ()
 attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = do
@@ -229,7 +206,7 @@ transitionProposal options finalBase finalHead proposal prepushLogs =
         Just targetPrefix -> transitionProposalToTarget options finalBase proposal targetPrefix prepushLogs
 
 runAttempt ::
-    IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal ->
+    IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Git.BranchName -> Proposal ->
     Ref -> Ref -> Git.BranchName -> EShell ()
 runAttempt currentState options prepushCmd logDir origBranchName proposal finalBase finalHead ontoBranchName = do
 
@@ -241,7 +218,7 @@ runAttempt currentState options prepushCmd logDir origBranchName proposal finalB
     -- If this fails, reject branch will be created first; then the cleanup of in-progress
     -- branch will delete that one, so we're safe against losing the proposal
     runPrepush prepushLogs prepushCmd finalBase finalHead
-        `catchError` (rejectProposal options origBranchName proposal "Prepush command failed" (Just prepushLogs) . Just)
+        `catchError` (Sling.rejectProposal options origin origBranchName proposal "Prepush command failed" (Just prepushLogs) . Just)
 
     -- TODO ensure not dirty
     eprint "Prepush command ran succesfully"
@@ -275,7 +252,7 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
         verifyRemoteBranch :: (Git.Remote, Git.BranchName) -> EShell ()
         verifyRemoteBranch rb =
             unless (rb `elem` remoteBranches)
-            $ rejectProposal options proposalBranch proposal ("Remote branch doesn't exist: " <> Git.fromBranchName ontoBranchName) Nothing Nothing
+            $ Sling.rejectProposal options origin (Git.branchName proposalBranch) proposal ("Remote branch doesn't exist: " <> Git.fromBranchName ontoBranchName) Nothing Nothing
 
     verifyRemoteBranch (origin, ontoBranchName)
 
@@ -309,7 +286,7 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
                                           ProposalTypeMerge MergeTypeKeepMerges _ -> Git.RebaseKeepMerges
                                           ProposalTypeRebase{}                 -> Git.RebaseKeepMerges
                               }
-            `catchError` (rejectProposal options proposalBranch proposal "Rebase failed" Nothing . Just)
+            `catchError` (Sling.rejectProposal options origin (Git.branchName proposalBranch) proposal "Rebase failed" Nothing . Just)
 
         -- rebase succeeded, we can now take this job
 
@@ -361,7 +338,7 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
             when jobTaken $ do
                 commitLogHtml <- formatCommitsForEmail options proposal commits <$> Git.remoteUrl origin
                 sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
-                runAttempt currentState options prepushCmd logDir proposalBranch proposal finalBase finalHead ontoBranchName
+                runAttempt currentState options prepushCmd logDir (Git.branchName proposalBranch) proposal finalBase finalHead ontoBranchName
 
 usage :: String
 usage = List.intercalate "\n"
@@ -394,7 +371,7 @@ handleSpecificProposal serverId state options prepushCmd proposal = do
 parseProposals :: [Branch] -> [(Branch, Proposal)]
 parseProposals remoteBranches =
     List.sortOn (proposalQueueIndex . snd)
-    $ mapMaybe (\branch -> (branch,) <$> parseProposal (branchName branch))
+    $ mapMaybe (\branch -> (branch,) <$> Proposal.fromBranchName (Git.branchName branch))
     remoteBranches
 
 getProposals :: EShell [(Branch, Proposal)]
@@ -453,7 +430,7 @@ serverPoll serverId currentState options prepushCmd pollOptions = do
         , "Target: " <> maybe "" (T.unpack . prefixToText) (optTargetPrefix options)
         ]
 
-    let showProposals ps = List.intercalate "\n\t" (map (show . branchName . fst) ps)
+    let showProposals ps = List.intercalate "\n\t" (map (show . Git.branchName . fst) ps)
 
     eprint . T.pack $ "All proposals (before filtering):\n\t" <> showProposals allProposals
     eprint . T.pack $ "Going to attempt proposals:\n\t" <> showProposals proposals
@@ -498,4 +475,4 @@ main = runEShell $ do
         CommandTypeList pollOptions -> do
             proposals <- getFilteredProposals serverId pollOptions
             forM_ proposals $ \(branch, proposal) -> do
-                eprint (branchName branch <> " " <> formatEmail (proposalEmail proposal))
+                eprint (Git.fromBranchName (Git.branchName branch) <> " " <> formatEmail (proposalEmail proposal))
