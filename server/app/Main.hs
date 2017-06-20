@@ -15,7 +15,7 @@ import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..),
                                                 mkBranchName)
 import qualified Sling.Git as Git
-import           Sling.Lib                     (EShell, abort, eproc, assert,
+import           Sling.Lib                     (EShell, Hash, abort, eproc, assert,
                                                 eprocsL, formatEmail, eprint,
                                                 ignoreError, runEShell)
 import qualified Sling as Sling
@@ -248,6 +248,43 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
         Just (updatedProposalBranch, updatedProposal) ->
             attemptBranch' serverId currentState options prepushCmd logDir updatedProposalBranch updatedProposal
 
+prepareMergeProposal :: Branch -> Proposal -> Hash -> Branch -> EShell ()
+prepareMergeProposal proposalBranch proposal baseHash niceBranch = do
+    let ontoBranchName = proposalBranchOnto proposal
+    -- note: 'nice' branch and 'onto' branch may be the same
+    -- branch. (e.g. proposal called 'master' with onto=master)
+    remoteOntoBranchHash <- Git.refToHash (RefBranch $ RemoteBranch origin ontoBranchName)
+    -- check that the proposal's base commit is exactly onto (should have been rebased by now):
+    fullBaseHash <- Git.unshortenHash baseHash
+    assert (==) fullBaseHash remoteOntoBranchHash
+        . Just
+        $ "Expected branch to be rebased already, but it isn't: "
+        <> T.intercalate " " (map (T.pack . show) [ remoteOntoBranchHash, fullBaseHash ])
+    -- point the working ('nice') branch to the proposal's head
+    Git.reset Git.ResetHard (RefBranch proposalBranch)
+    isMerge <- Git.isMergeCommit RefHead
+    commits <- Git.log (Git.RefHash fullBaseHash) RefHead
+    let mergeFF =
+            if isMerge || (length commits == 1)
+            then Git.MergeFFOnly
+            else Git.MergeNoFF
+    -- go back to 'onto', decide whether to create a merge commit on
+    -- top (if we should merge ff only)
+    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
+    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
+    Git.merge mergeFF niceBranch
+    when (mergeFF == Git.MergeNoFF) $
+        Git.commitAmend (proposalEmail proposal) Git.RefHead
+    newHead <- Git.currentRef
+    -- Fast-forward the work branch to match the merged 'onto' we do
+    -- this so that the prepush script will see itself running on a
+    -- branch with the name the user gave to this proposal, and not
+    -- the onto branch's name.
+    Git.checkout (RefBranch niceBranch)
+    Git.merge Git.MergeFFOnly (LocalBranch ontoBranchName)
+    headAfterFF <- Git.currentRef
+    assert (==) newHead headAfterFF $ Just "Expected to arrive at same commit"
+
 attemptBranch' :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal -> EShell ()
 attemptBranch' serverId currentState options prepushCmd logDir proposalBranch proposal = do
     let ontoBranchName = proposalBranchOnto proposal
@@ -261,10 +298,7 @@ attemptBranch' serverId currentState options prepushCmd logDir proposalBranch pr
 
     setStateProposal currentState proposal commits
 
-    -- note: 'nice' branch and 'onto' branch may be the same
-    -- branch. (e.g. proposal called 'master' with onto=master)
     remoteOntoBranchHash <- Git.refToHash (RefBranch $ RemoteBranch origin ontoBranchName)
-
     let nicePrefix = if proposalName proposal == ontoBranchName
                      then "_" -- to ensure niceBranchName never equals ontoBranchName
                      else ""
@@ -275,43 +309,8 @@ attemptBranch' serverId currentState options prepushCmd logDir proposalBranch pr
     -- create local work branch, reset to proposed
     withLocalBranch niceBranchName $ do
         case proposalType proposal of
-            ProposalTypeMerge _mergeType baseHash -> do
-                -- check that the proposal's base commit is exactly onto (should have been rebased by now):
-                fullBaseHash <- Git.unshortenHash baseHash
-                assert (==) fullBaseHash remoteOntoBranchHash
-                    . Just
-                    $ "Expected branch to be rebased already, but it isn't: "
-                    <> T.intercalate " " (map (T.pack . show) [ remoteOntoBranchHash, fullBaseHash ])
-
-                -- point the working ('nice') branch to the proposal's head
-                Git.reset Git.ResetHard (RefBranch proposalBranch)
-
-                isMerge <- Git.isMergeCommit RefHead
-                let mergeFF =
-                        if isMerge || (length commits == 1)
-                        then Git.MergeFFOnly
-                        else Git.MergeNoFF
-                    localOntoBranch = RefBranch $ LocalBranch ontoBranchName
-                -- go back to 'onto', decide whether to create a merge commit on
-                -- top (if we should merge ff only)
-                Git.deleteLocalBranch ontoBranchName & ignoreError
-                Git.checkout localOntoBranch
-                Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
-
-                Git.merge mergeFF niceBranch
-                when (mergeFF == Git.MergeNoFF) $
-                    Git.commitAmend (proposalEmail proposal) Git.RefHead
-                newHead <- Git.currentRef
-
-                -- Fast-forward the work branch to match the merged 'onto' we do
-                -- this so that the prepush script will see itself running on a
-                -- branch with the name the user gave to this proposal, and not
-                -- the onto branch's name.
-                Git.checkout (RefBranch niceBranch)
-                Git.merge Git.MergeFFOnly (LocalBranch ontoBranchName)
-
-                headAfterFF <- Git.currentRef
-                assert (==) newHead headAfterFF $ Just "Expected to arrive at same commit"
+            ProposalTypeMerge _mergeType baseHash ->
+                prepareMergeProposal proposalBranch proposal baseHash niceBranch
 
             ProposalTypeRebase branchToRebase -> do
                 Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin branchToRebase)
