@@ -49,6 +49,14 @@ import           Prelude hiding (FilePath)
 pollingInterval :: Int
 pollingInterval = 1000000 * 10
 
+data Job
+    = Job
+    { jobProposal :: Proposal
+    , jobInProgressBranchName :: Git.BranchName
+    , jobBase :: Ref
+    , jobHead :: Ref
+    } deriving (Show)
+
 runPrepush :: PrepushLogs -> PrepushCmd -> Ref -> Ref -> EShell ()
 runPrepush (PrepushLogs logDir logFile) (PrepushCmd cmd) baseR headR = do
     let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
@@ -104,8 +112,13 @@ slingBranchName (Just prefix) suffix = mkBranchName $ prefixToText prefix <> suf
 
 attemptBranchOrAbort :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Branch -> Proposal -> EShell ()
 attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = do
-    dirPath <- FP.decodeString <$> liftIO (createTempDirectory "/tmp" "sling.log")
-    attemptBranch serverId currentState options prepushCmd dirPath branch proposal `catchError` abortAttempt currentState options proposal
+    job' <- tryTakeJob serverId currentState options (branch, proposal)
+    case job' of
+        Nothing -> return () -- ignore
+        Just job -> do
+            dirPath <- FP.decodeString <$> liftIO (createTempDirectory "/tmp" "sling.log")
+            runAttempt currentState options prepushCmd dirPath job
+            `catchError` abortAttempt currentState options proposal
 
 setStateProposal :: (Show a, Foldable t) => IORef CurrentState -> Proposal -> t a -> EShell ()
 setStateProposal currentState proposal commits = do
@@ -138,10 +151,9 @@ withNewBranch b pushType act = do
             Git.checkout currentRef
             deleteLocalAndRemote b
     res <- act `catchError` (\e -> cleanup >> throwError e)
-    cleanup
     return res
 
-withLocalBranch :: Git.BranchName -> EShell () -> EShell ()
+withLocalBranch :: Git.BranchName -> EShell a -> EShell a
 withLocalBranch name act = do
     currentRef <- Git.currentRef
     Git.deleteBranch branch & ignoreError
@@ -153,7 +165,6 @@ withLocalBranch name act = do
             Git.checkout currentRef
             when shouldCreate $ Git.deleteBranch branch
     res <- act `catchError` (\e -> cleanup >> throwError e)
-    cleanup
     return res
     where branch = LocalBranch name
 
@@ -207,33 +218,31 @@ transitionProposal options finalBase finalHead proposal prepushLogs =
         Just targetPrefix -> transitionProposalToTarget options finalBase proposal targetPrefix prepushLogs
 
 runAttempt ::
-    IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Git.BranchName -> Proposal ->
-    Ref -> Ref -> Git.BranchName -> EShell ()
-runAttempt currentState options prepushCmd logDir origBranchName proposal finalBase finalHead ontoBranchName = do
-
+    IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Job -> EShell ()
+runAttempt currentState options prepushCmd logDir (Job proposal inProgressBranchName finalBase finalHead) = do
     -- DO IT!
     logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
     let prepushLogs = PrepushLogs logDir (FP.fromText logFileName)
+
     liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just $ T.unpack logFileName }
 
-    -- If this fails, reject branch will be created first; then the cleanup of in-progress
-    -- branch will delete that one, so we're safe against losing the proposal
     runPrepush prepushLogs prepushCmd finalBase finalHead
-        `catchError` (Sling.rejectProposal options origin origBranchName proposal "Prepush command failed" (Just prepushLogs) . Just)
+        `catchError` (Sling.rejectProposal options origin inProgressBranchName proposal "Prepush command failed" (Just prepushLogs) . Just)
 
     -- TODO ensure not dirty
     eprint "Prepush command ran succesfully"
 
     transitionProposal options finalBase finalHead proposal prepushLogs
 
-    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
-    Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
+    curHash <- Git.currentRefHash
+    Git.checkout $ Git.RefHash curHash
+    deleteLocalAndRemote inProgressBranchName
 
     eprint $ "Finished handling proposal " <> (formatProposal proposal)
 
 
-attemptBranch :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal -> EShell ()
-attemptBranch serverId currentState options prepushCmd logDir proposalBranch proposal = do
+tryTakeJob :: ServerId -> IORef CurrentState -> Options -> (Branch, Proposal) -> EShell (Maybe Job)
+tryTakeJob serverId currentState options (proposalBranch, proposal) = do
     cleanupBranches -- remove leftover branches
     Git.fetch
     -- cleanup leftover state from previous runs
@@ -244,9 +253,9 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
         Nothing -> do
             -- The proposal was deleted while we were working on it. Forget about it.
             eprint "Other slave took the job or proposal deleted? Dropping"
-            return ()
-        Just (updatedProposalBranch, updatedProposal) ->
-            attemptBranch' serverId currentState options prepushCmd logDir updatedProposalBranch updatedProposal
+            return Nothing
+        Just (updatedProposalBranch, updatedProposal) -> do
+            tryTakeJob' serverId currentState options updatedProposalBranch updatedProposal
 
 prepareMergeProposal :: Branch -> Proposal -> Hash -> Branch -> EShell ()
 prepareMergeProposal proposalBranch proposal baseHash niceBranch = do
@@ -285,8 +294,8 @@ prepareMergeProposal proposalBranch proposal baseHash niceBranch = do
     headAfterFF <- Git.currentRef
     assert (==) newHead headAfterFF $ Just "Expected to arrive at same commit"
 
-attemptBranch' :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal -> EShell ()
-attemptBranch' serverId currentState options prepushCmd logDir proposalBranch proposal = do
+tryTakeJob' :: ServerId -> IORef CurrentState -> Options -> Branch -> Proposal -> EShell (Maybe Job)
+tryTakeJob' serverId currentState options proposalBranch proposal = do
     let ontoBranchName = proposalBranchOnto proposal
         remoteOnto = RefBranch $ RemoteBranch origin ontoBranchName
         (baseRef, headRef) =
@@ -333,6 +342,7 @@ attemptBranch' serverId currentState options prepushCmd logDir proposalBranch pr
         eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack (Git.fromBranchName inProgressBranchName)
 
         withNewBranch inProgressBranchName forceCreateInProgress $ do
+            Git.deleteLocalBranch niceBranchName
             jobTaken <- case proposalStatus proposal of
                 ProposalRejected -> error "ASSERTION FAILED! Shouldn't be taking rejected proposal"
                 ProposalInProgress{} | inProgressBranchName == (Git.branchName proposalBranch) -> return True
@@ -340,13 +350,16 @@ attemptBranch' serverId currentState options prepushCmd logDir proposalBranch pr
                     eprint "Deleting proposal branch..."
                     (Git.deleteBranch proposalBranch >> return True)
                         `catchError` (const $ eprint "Can't delete proposal - Other slave took the job? Dropping" >> return False)
-            when jobTaken $ do
-                commitLogHtml <- formatCommitsForEmail options proposal commits <$> Git.remoteUrl origin
-                let title = if isDryRun options proposal
-                            then "Running dry run"
-                            else "Attempting to merge"
-                sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
-                runAttempt currentState options prepushCmd logDir (Git.branchName proposalBranch) proposal finalBase finalHead ontoBranchName
+            case jobTaken of
+                True -> do
+                    commitLogHtml <- formatCommitsForEmail options proposal commits <$> Git.remoteUrl origin
+                    let title = if isDryRun options proposal
+                                then "Running dry run"
+                                else "Attempting to merge"
+                    sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
+                    return . Just $ Job proposal inProgressBranchName finalBase finalHead
+                False -> return Nothing
+
 
 usage :: String
 usage = List.intercalate "\n"
