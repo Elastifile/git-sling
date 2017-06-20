@@ -13,7 +13,7 @@ import qualified Data.Text as T
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..), branchName,
-                                                fromBranchName, mkBranchName)
+                                                mkBranchName)
 import qualified Sling.Git as Git
 import           Sling.Lib                     (EShell, abort, eproc,
                                                 eprocsL, formatEmail, eprint,
@@ -25,6 +25,7 @@ import           Sling.Options (parseOpts, isDryRun,
 import           Sling.Path (encodeFP)
 import           Sling.Prepush (PrepushLogs(..))
 import           Sling.Proposal
+import qualified Sling.Proposal as Proposal
 import           Sling.Email (sendProposalEmail, formatCommitsForEmail, EmailType(..))
 import           Sling.Web (forkServer, CurrentState(..), emptyCurrentState)
 import           Text.Regex.Posix ((=~))
@@ -104,7 +105,7 @@ slingBranchName (Just prefix) suffix = mkBranchName $ prefixToText prefix <> suf
 rejectProposal :: Options -> Branch -> Proposal -> Text -> Maybe PrepushLogs -> Maybe (Text, ExitCode) -> EShell ()
 rejectProposal options proposalBranch proposal reason prepushLogs err = do
     let rejectedProposal = proposal { proposalStatus = ProposalRejected }
-        rejectBranchName = formatProposal rejectedProposal
+        rejectBranchName = Proposal.toBranchName rejectedProposal
         origBranchName = Git.branchName proposalBranch
         suffix = case err of
             Just (msg, errCode) -> " because: '" <> reason <> "' (" <> msg <> "), exit code = " <> T.pack (show errCode)
@@ -113,14 +114,14 @@ rejectProposal options proposalBranch proposal reason prepushLogs err = do
     eprint $ msgBody
     sendProposalEmail options proposal ("Rejecting (" <> reason <> ")") (toHtml msgBody) prepushLogs ProposalFailureEmail
     Git.fetch & ignoreError
-    Git.deleteBranch (RemoteBranch origin $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
-    Git.deleteBranch (LocalBranch $ mkBranchName rejectBranchName) & ignoreError -- in case it exists
+    Git.deleteBranch (RemoteBranch origin rejectBranchName) & ignoreError -- in case it exists
+    Git.deleteBranch (LocalBranch rejectBranchName) & ignoreError -- in case it exists
     Git.reset Git.ResetHard RefHead
-    _ <- Git.createLocalBranch (mkBranchName rejectBranchName) RefHead
-    _ <- Git.createRemoteTrackingBranch origin (mkBranchName rejectBranchName) Git.PushForceWithoutLease
+    _ <- Git.createLocalBranch rejectBranchName RefHead
+    _ <- Git.createRemoteTrackingBranch origin rejectBranchName Git.PushForceWithoutLease
     -- We have to be on another branch before deleting stuff, so arbitrarily picking rejected branch
-    Git.checkout (Git.RefBranch . LocalBranch $ mkBranchName rejectBranchName)
-    Git.deleteBranch (LocalBranch . mkBranchName $ formatProposal proposal) & ignoreError
+    Git.checkout (Git.RefBranch $ LocalBranch rejectBranchName)
+    Git.deleteBranch (LocalBranch $ Proposal.toBranchName proposal) & ignoreError
     Git.deleteBranch (RemoteBranch origin $ mkBranchName origBranchName)
     abort "Rejected"
 
@@ -186,13 +187,12 @@ transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = d
                        MoveBranchOnto mergeType _oldBase -> MoveBranchOnto mergeType shortBaseHash
                        MoveBranchProposed name -> MoveBranchProposed name
 
-        targetProposalName = formatProposal $ proposal { proposalPrefix = Just targetPrefix
+        targetBranchName = Proposal.toBranchName $ proposal { proposalPrefix = Just targetPrefix
                                                        , proposalMove = moveBranch
                                                        , proposalStatus = ProposalProposed }
-        targetBranchName = mkBranchName targetProposalName
-    eprint . T.pack $ "Creating target proposal branch: " <> T.unpack targetProposalName
+    eprint . T.pack $ "Creating target proposal branch: " <> T.unpack (Git.fromBranchName targetBranchName)
     when (targetBranchName == ontoBranchName)
-        $ abort $ "Can't handle branch, onto == target: " <> targetProposalName
+        $ abort $ "Can't handle branch, onto == target: " <> (Git.fromBranchName targetBranchName)
     safeCreateBranch targetBranchName Git.PushNonForce
     Git.checkout (RefBranch $ LocalBranch ontoBranchName)
     Git.deleteLocalBranch targetBranchName
@@ -208,11 +208,11 @@ transitionProposalToCompletion options finalHead proposal prepushLogs = do
     else do
         case proposalMove proposal of
             MoveBranchOnto _mergeType _baseRef -> do
-                eprint $ "Updating: " <> fromBranchName ontoBranchName
+                eprint $ "Updating: " <> Git.fromBranchName ontoBranchName
                 Git.checkout (RefBranch $ LocalBranch ontoBranchName)
                 Git.push
             MoveBranchProposed name  -> do
-                eprint $ "Updating: " <> fromBranchName name
+                eprint $ "Updating: " <> Git.fromBranchName name
                 Git.deleteLocalBranch name & ignoreError
                 Git.checkout (RefBranch $ LocalBranch name)
                 Git.reset Git.ResetHard finalHead
@@ -251,7 +251,7 @@ runAttempt currentState options prepushCmd logDir origBranchName proposal finalB
     Git.checkout (RefBranch $ LocalBranch ontoBranchName)
     Git.reset Git.ResetHard (RefBranch $ RemoteBranch origin ontoBranchName)
 
-    eprint $ "Finished handling proposal " <> formatProposal proposal
+    eprint $ "Finished handling proposal " <> (formatProposal proposal)
 
 
 attemptBranch :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Branch -> Proposal -> EShell ()
@@ -275,7 +275,7 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
         verifyRemoteBranch :: (Git.Remote, Git.BranchName) -> EShell ()
         verifyRemoteBranch rb =
             unless (rb `elem` remoteBranches)
-            $ rejectProposal options proposalBranch proposal ("Remote branch doesn't exist: " <> fromBranchName ontoBranchName) Nothing Nothing
+            $ rejectProposal options proposalBranch proposal ("Remote branch doesn't exist: " <> Git.fromBranchName ontoBranchName) Nothing Nothing
 
     verifyRemoteBranch (origin, ontoBranchName)
 
@@ -347,10 +347,9 @@ attemptBranch serverId currentState options prepushCmd logDir proposalBranch pro
                 MoveBranchOnto mergeType _baseHash -> MoveBranchOnto mergeType finalBaseHash
                 MoveBranchProposed moveBranchName -> MoveBranchProposed moveBranchName
 
-            inProgressProposalName = formatProposal $ proposal { proposalStatus = ProposalInProgress serverId
+            inProgressBranchName = Proposal.toBranchName $ proposal { proposalStatus = ProposalInProgress serverId
                                                                , proposalMove = newProposalMove }
-            inProgressBranchName = mkBranchName inProgressProposalName
-        eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack inProgressProposalName
+        eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack (Git.fromBranchName inProgressBranchName)
 
         withNewBranch inProgressBranchName forceCreateInProgress $ do
             eprint "Deleting proposal branch..."
@@ -379,7 +378,7 @@ shouldConsiderProposal pollOptions proposal =
     && fromMaybe True (not . checkFilter <$> optBranchExcludeFilterAll pollOptions)
     && fromMaybe True (((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun pollOptions)
     && fromMaybe True ((proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun pollOptions)
-    where checkFilter pat = (T.unpack . fromBranchName $ proposalBranchOnto proposal) =~ pat
+    where checkFilter pat = (T.unpack . Git.fromBranchName $ proposalBranchOnto proposal) =~ pat
 
 handleSpecificProposal :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Proposal -> EShell ()
 handleSpecificProposal serverId state options prepushCmd proposal = do

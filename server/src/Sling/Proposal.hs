@@ -1,5 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Sling.Proposal where
+module Sling.Proposal
+    ( Proposal (..)
+    , ProposalStatus (..)
+    , ServerId (..)
+    , MergeType (..)
+    , MoveBranch (..)
+    , Prefix (..)
+    , prefixFromText
+    , prefixToText
+    , toBranchName
+    , fromBranchName
+    , formatProposal
+    , parseProposal
+    ) where
 
 import           Data.Text           (Text)
 import qualified Data.Text           as T
@@ -93,6 +106,9 @@ formatMoveBranch :: MoveBranch -> Text
 formatMoveBranch (MoveBranchOnto mergeType ref) = moveOntoPrefix <> mergeTypePrefix mergeType <> "/" <> fromHash ref
 formatMoveBranch (MoveBranchProposed name) = moveProposedPrefix <> "/" <> (formatBranchName name)
 
+toBranchName :: Proposal -> Git.BranchName
+toBranchName = Git.mkBranchName . formatProposal
+
 formatProposal :: Proposal -> Text
 formatProposal p = "sling/" <> prefix <> "/" <> suffix
     where
@@ -164,6 +180,9 @@ proposalPat = do
 
 parseProposal :: Text -> Maybe Proposal
 parseProposal = singleMatch proposalPat
+
+fromBranchName :: Git.BranchName -> Maybe Proposal
+fromBranchName = parseProposal . Git.fromBranchName
 
 slingPrefix :: Text
 slingPrefix = "sling"

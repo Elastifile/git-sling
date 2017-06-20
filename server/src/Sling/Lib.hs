@@ -19,6 +19,8 @@ import qualified System.IO
 
 -- Turtle stuff
 
+-- TODO: EShell a is a stream of a's, but throught sling we use it as
+-- if it were IO a, which is wrong.
 type EShell a = EitherT (Text, ExitCode) Shell a
 
 eprintTo :: System.IO.Handle -> Text -> EShell ()
