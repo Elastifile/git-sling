@@ -4,10 +4,9 @@
 module Main where
 
 import           Control.Monad (when, void, forM_)
-import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.IO.Class (liftIO)
 import           Data.IORef
-import           Data.Maybe (fromMaybe, mapMaybe, catMaybes)
+import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Time.Clock.POSIX (getPOSIXTime)
@@ -15,7 +14,7 @@ import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..),
                                                 mkBranchName)
 import qualified Sling.Git as Git
-import           Sling.Lib                     (EShell, abort, eproc,
+import           Sling.Lib                     (EShell, abort,
                                                 eprocsL, formatEmail, eprint,
                                                 ignoreError, runEShell)
 import qualified Sling
@@ -37,7 +36,6 @@ import qualified Data.List as List
 import           Network.BSD (getHostName)
 
 import qualified Filesystem.Path.CurrentOS as FP
-import           Filesystem.Path.CurrentOS (FilePath)
 
 import           System.IO.Temp (createTempDirectory)
 import qualified Text.Blaze.Html5 as H
@@ -94,7 +92,7 @@ setCurrentLogFile currentState logFileName = liftIO $ modifyIORef currentState $
 
 ----------------------------------------------------------------------
 
-abortAttempt :: IORef CurrentState -> Options -> Proposal -> (Text, ExitCode) -> EShell ()
+abortAttempt :: IORef CurrentState -> Options -> Proposal -> (Text, ExitCode) -> EShell a
 abortAttempt currentState options proposal (msg, _err) = do
     eprint . T.pack $ "ABORTING: " ++ show msg
     sendProposalEmail options proposal "Aborting" (H.html $ H.text msg) Nothing ProposalFailureEmail
@@ -107,20 +105,6 @@ slingBranchName Nothing suffix = mkBranchName suffix
 slingBranchName (Just prefix) suffix = mkBranchName $ prefixToText prefix <> suffix
 
 ----------------------------------------------------------------------
-
-runPrepush :: PrepushLogs -> PrepushCmd -> Ref -> Ref -> EShell ()
-runPrepush (PrepushLogs logDir logFile) (PrepushCmd cmd) baseR headR = do
-    let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
-        env_str = "SLING_LOG_DIR=" <> encodeFP logDir
-        bashArgs = [ "-o", "pipefail", "-c"
-                   , " ( exec 2>&1; " <> env_str <> " " <> args
-                     <> " ) | tee " <> encodeFP logFile]
-    eprint $ "Executing bash with: '" <> mconcat bashArgs <> "' output goes to: " <> encodeFP logFile
-    eprint "----------------------------------------------------------------------"
-    eproc "bash" bashArgs (return "")
-    eprint "----------------------------------------------------------------------"
-    -- TODO delete log if successful?
-    return ()
 
 attemptBranchOrAbort :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Branch -> Proposal -> EShell ()
 attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = do
@@ -137,27 +121,16 @@ attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = 
             setStateProposal currentState proposal commits
 
             dirPath <- FP.decodeString <$> liftIO (createTempDirectory "/tmp" "sling.log")
-            runAttempt currentState options prepushCmd dirPath job
-            `catchError` abortAttempt currentState options proposal
+            logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP dirPath, "prepush.XXXXXXX.txt"]
+            let prepushLogs = PrepushLogs dirPath (FP.fromText logFileName)
 
-runAttempt ::
-    IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Sling.Job -> EShell ()
-runAttempt currentState options prepushCmd logDir (Sling.Job proposal finalBase finalHead) = do
-    -- DO IT!
-    logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
-    let prepushLogs = PrepushLogs logDir (FP.fromText logFileName)
+            setCurrentLogFile currentState logFileName
 
-    setCurrentLogFile currentState logFileName
+            -- DO IT!
+            Sling.runPrepush options origin prepushCmd prepushLogs job
 
-    runPrepush prepushLogs prepushCmd finalBase finalHead
-        `catchError` (Sling.rejectProposal options origin proposal "Prepush command failed" (Just prepushLogs) . Just)
-
-    -- TODO ensure not dirty
-    eprint "Prepush command ran succesfully"
-
-    Sling.transitionProposal options origin finalBase finalHead proposal prepushLogs
-
-    eprint $ "Finished handling proposal " <> formatProposal proposal
+            Sling.transitionProposal options origin job prepushLogs
+            eprint $ "Finished handling proposal " <> formatProposal proposal
 
 ----------------------------------------------------------------------
 

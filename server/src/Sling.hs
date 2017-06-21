@@ -5,6 +5,7 @@ module Sling
     , rejectProposal
     , updateProposal
     , transitionProposal
+    , runPrepush
     ) where
 
 import           Control.Monad (unless, when, void)
@@ -18,9 +19,10 @@ import           Turtle ((&), ExitCode)
 
 import qualified Sling.Git as Git
 import           Sling.Email (sendProposalEmail, formatCommitsForEmail, EmailType(..))
-import           Sling.Lib (EShell, Hash, ignoreError, assert, eprint, abort)
+import           Sling.Lib (EShell, Hash, ignoreError, assert, eprint, abort, eproc)
 import           Sling.Options (Options, isDryRun)
 import qualified Sling.Options as Options
+import           Sling.Path (encodeFP)
 import           Sling.Prepush (PrepushLogs(..))
 import qualified Sling.Proposal as Proposal
 import           Sling.Proposal (Proposal)
@@ -312,8 +314,8 @@ transitionProposalToCompletion options finalHead proposal prepushLogs =
 
         sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs) ProposalSuccessEmail
 
-transitionProposal :: Options -> Git.Remote -> Git.Ref -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
-transitionProposal options remote finalBase finalHead proposal prepushLogs = do
+transitionProposal :: Options -> Git.Remote -> Job -> PrepushLogs -> EShell ()
+transitionProposal options remote (Job proposal finalBase finalHead) prepushLogs = do
     case Options.optTargetPrefix options of
         Nothing -> transitionProposalToCompletion options finalHead proposal prepushLogs
         Just targetPrefix -> transitionProposalToTarget options remote finalBase proposal targetPrefix prepushLogs
@@ -323,3 +325,25 @@ transitionProposal options remote finalBase finalHead proposal prepushLogs = do
     Git.checkout $ Git.RefHash curHash
     Git.deleteBranch (Git.LocalBranch $ Proposal.toBranchName proposal)
     Git.deleteBranch (Git.RemoteBranch remote $ Proposal.toBranchName proposal)
+
+----------------------------------------------------------------------
+
+runPrepush' :: PrepushLogs -> Options.PrepushCmd -> Git.Ref -> Git.Ref -> EShell ()
+runPrepush' (PrepushLogs logDir logFile) (Options.PrepushCmd cmd) baseR headR = do
+    let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
+        env_str = "SLING_LOG_DIR=" <> encodeFP logDir
+        bashArgs = [ "-o", "pipefail", "-c"
+                   , " ( exec 2>&1; " <> env_str <> " " <> args
+                     <> " ) | tee " <> encodeFP logFile]
+    eprint $ "Executing bash with: '" <> mconcat bashArgs <> "' output goes to: " <> encodeFP logFile
+    eprint "----------------------------------------------------------------------"
+    eproc "bash" bashArgs (return "")
+    eprint "----------------------------------------------------------------------"
+    -- TODO delete log if successful?
+
+runPrepush :: Options -> Git.Remote -> Options.PrepushCmd -> PrepushLogs -> Sling.Job -> EShell ()
+runPrepush options remote prepushCmd prepushLogs (Sling.Job proposal finalBase finalHead) = do
+    runPrepush' prepushLogs prepushCmd finalBase finalHead
+        `catchError` (Sling.rejectProposal options remote proposal "Prepush command failed" (Just prepushLogs) . Just)
+    -- TODO ensure not dirty
+    eprint "Prepush command ran succesfully"
