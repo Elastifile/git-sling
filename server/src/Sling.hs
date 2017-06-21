@@ -10,7 +10,6 @@ module Sling
 
 import           Control.Monad (unless, when, void)
 import           Control.Monad.Except (MonadError (..))
-import           Control.Monad.IO.Class (liftIO)
 import           Data.Monoid ((<>))
 import           Data.Text              (Text)
 import qualified Data.Text as T
@@ -147,7 +146,6 @@ withLocalBranch name act = do
     let branch = Git.LocalBranch name
     currentRef <- Git.currentRef
     Git.deleteBranch branch & ignoreError
-    Git.localBranches >>= (liftIO . mapM_ print)
     shouldCreate <- notElem name <$> Git.localBranches
     when shouldCreate $ void $ Git.createLocalBranch name Git.RefHead
     Git.checkout (Git.RefBranch branch)

@@ -30,15 +30,12 @@ eprintTo x t = liftIO $ do
     System.IO.hFlush x
 
 eprint :: Text -> EShell ()
-eprint = eprintTo System.IO.stdout
-
-estderr :: Text -> EShell ()
-estderr = eprintTo System.IO.stderr
+eprint = eprintTo System.IO.stderr
 
 eproc :: Text -> [Text] -> Shell Text -> EShell ()
 eproc cmd args input = do
     let cmdStr = T.intercalate " " (cmd:args)
-    estderr $ "$ " <> cmdStr
+    eprint $ "$ " <> cmdStr
     exitCode <- proc cmd args input
     case exitCode of
         ExitSuccess -> pure ()
@@ -47,12 +44,12 @@ eproc cmd args input = do
 eprocsIn :: Text -> [Text] -> Shell Text -> EShell Text
 eprocsIn cmd args input = do
     let cmdStr = T.intercalate " " (cmd:args)
-    estderr $ "$ " <> cmdStr
+    eprint $ "$ " <> cmdStr
     (exitCode, t) <- procStrict cmd args input
     case exitCode of
         ExitSuccess -> pure t
         _           -> do
-            liftIO $ putStrLn $ T.unpack t
+            eprint t
             left ("Command failed: " <> cmdStr, exitCode)
 
 eprocs :: Text -> [Text] -> EShell Text
@@ -80,7 +77,7 @@ safe f xs = Just $ f xs
 
 abort :: Text -> EShell a
 abort msg = do
-    estderr msg
+    eprint msg
     left (msg, ExitFailure 1)
 
 runEShell :: EShell a -> IO ()

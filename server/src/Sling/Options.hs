@@ -2,7 +2,8 @@
 module Sling.Options
     where
 
-import Sling.Proposal (Prefix, prefixFromText, Proposal(..), parseProposal)
+import Sling.Proposal (Prefix, prefixFromText, Proposal(..))
+import qualified Sling.Proposal as Proposal
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Maybe (fromMaybe)
@@ -47,6 +48,9 @@ data CommandType
     = CommandTypePropose { _cmdMode :: PrepushMode
                          , _cmdPrepushCommandAnArgs :: PrepushCmd }
     | CommandTypeList PollOptions
+    | CommandTypeRebase PollOptions
+    | CommandTypeTakeJob PollOptions
+    | CommandTypeTransition Proposal
 
 data PrepushMode
     = ProposalModePoll PollOptions
@@ -68,7 +72,7 @@ catchMaybe = flip fromMaybe
 
 parseProposalFromCmdLine :: String -> Proposal
 parseProposalFromCmdLine s =
-    parseProposal (T.pack s)
+    Proposal.parseProposal (T.pack s)
     `catchMaybe` error ("Invalid proposal format: " ++ show s)
 
 prepushCommandArgs :: Parser PrepushCmd
@@ -77,14 +81,16 @@ prepushCommandArgs = PrepushCmd <$>
               (metavar "-- PREPUSH COMMAND LINE..." <>
                help "Pre-push command to run on each proposed branch (exit code 0 considered success)"))
 
+parseProposal :: Parser Proposal
+parseProposal = parseProposalFromCmdLine <$> argument str (metavar "PROPOSAL" <>
+                                                           help "A proposal branch name to handle")
+
 parseModeBranches :: Parser CommandType
 parseModeBranches =
     hsubparser
     ( command "proposal" (info
                           (CommandTypePropose <$>
-                           (ProposalModeSingle .parseProposalFromCmdLine <$>
-                               argument str (metavar "PROPOSAL" <>
-                                             help "A proposal branch name to handle"))
+                           (ProposalModeSingle <$> parseProposal)
                            <*> prepushCommandArgs)
                           (fullDesc <> progDesc "Process a single proposal"))
       <> command "list" (info (CommandTypeList <$> pollOptionsParser)
@@ -93,6 +99,12 @@ parseModeBranches =
                                   <$> (ProposalModePoll <$> pollOptionsParser)
                                   <*> prepushCommandArgs)
                          (fullDesc <> progDesc "Process proposals queued as branches"))
+      <> command "rebase" (info (CommandTypeRebase <$> pollOptionsParser)
+                           (fullDesc <> progDesc "Rebase proposals to the most recent state of the target branch"))
+      <> command "take-job" (info (CommandTypeTakeJob <$> pollOptionsParser)
+                             (fullDesc <> progDesc "Pick a single proposal and mark it as in-progress"))
+      <> command "transition" (info (CommandTypeTransition <$> parseProposal)
+                               (fullDesc <> progDesc "Assume an in-progress proposal is successful, and transition it (to completion or next step)"))
     )
     -- flag' (ProposalFromBranch Nothing)
     --  (short 's' <>

@@ -14,7 +14,7 @@ import           Sling.Git                     (Branch (..), Ref (..),
                                                 Remote (..),
                                                 mkBranchName)
 import qualified Sling.Git as Git
-import           Sling.Lib                     (EShell, abort,
+import           Sling.Lib                     (EShell, abort, Hash(..),
                                                 eprocsL, formatEmail, eprint,
                                                 ignoreError, runEShell)
 import qualified Sling
@@ -112,14 +112,18 @@ slingBranchName (Just prefix) suffix = mkBranchName $ prefixToText prefix <> suf
 
 ----------------------------------------------------------------------
 
-attemptBranchOrAbort :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Branch -> Proposal -> EShell ()
-attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = do
+tryTakeJob :: ServerId -> Options -> (Branch, Proposal) -> EShell (Maybe Sling.Job)
+tryTakeJob serverId options (branch, proposal) = do
     cleanupBranches -- remove leftover branches
     Git.fetch
     -- cleanup leftover state from previous runs
     cleanupGit proposal
 
-    job' <- Sling.tryTakeJob serverId options origin (branch, proposal)
+    Sling.tryTakeJob serverId options origin (branch, proposal)
+
+attemptBranchOrAbort :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Branch -> Proposal -> EShell ()
+attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = do
+    job' <- tryTakeJob serverId options (branch, proposal)
     case job' of
         Nothing -> return () -- ignore
         Just job -> do
@@ -256,6 +260,11 @@ serverLoop serverId currentState options prepushCmd pollOptions = do
                     go
     go
 
+notInProgress :: Proposal -> Bool
+notInProgress proposal = case Proposal.proposalStatus proposal of
+    Proposal.ProposalInProgress{} -> False
+    _ -> True
+
 main :: IO ()
 main = runEShell $ do
     options <- liftIO parseOpts
@@ -273,3 +282,32 @@ main = runEShell $ do
             proposals <- getFilteredProposals serverId pollOptions
             forM_ proposals $ \(branch, proposal) ->
                 eprint (Git.fromBranchName (Git.branchName branch) <> " " <> formatEmail (proposalEmail proposal))
+        CommandTypeRebase pollOptions -> do
+            proposals <- filter (notInProgress . snd) <$> getFilteredProposals serverId pollOptions
+            forM_ proposals $ Sling.updateProposal options origin
+        CommandTypeTakeJob pollOptions -> do
+            proposals <- filter (notInProgress . snd) <$> getFilteredProposals serverId pollOptions
+            case proposals of
+                [topProposal] -> do
+                    mjob <- tryTakeJob serverId options topProposal
+                    case mjob of
+                        Nothing -> liftIO $ putStrLn "<<< no job taken"
+                        Just (Sling.Job proposal baseRef headRef) -> do
+                            baseHash <- Git.refToHash baseRef
+                            headHash <- Git.refToHash headRef
+                            liftIO $ putStrLn $ mconcat
+                                [ ">>> "
+                                , "base:" <> (T.unpack $ fromHash baseHash)
+                                , " "
+                                , "head:" <> (T.unpack $ fromHash headHash)
+                                , " "
+                                , "branch:" <> T.unpack (Proposal.formatProposal proposal)
+                                ]
+                _ -> liftIO $ putStrLn "<<< no job taken"
+        CommandTypeTransition proposal -> do
+            case Proposal.proposalType proposal of
+                Proposal.ProposalTypeRebase{} -> abort "Can't transition a rebase proposal"
+                Proposal.ProposalTypeMerge _mergeType baseHash -> do
+                    headRef <- Git.RefHash <$> Git.refToHash (Git.RefBranch $ Git.RemoteBranch origin (Proposal.toBranchName proposal))
+                    Sling.transitionProposal options origin (Sling.Job proposal (Git.RefHash baseHash) headRef) Nothing
+
