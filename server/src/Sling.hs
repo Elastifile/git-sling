@@ -44,7 +44,7 @@ rejectProposal options remote proposal reason prepushLogs err = do
             Just (msg, errCode) -> " because: '" <> reason <> "' (" <> msg <> "), exit code = " <> T.pack (show errCode)
             Nothing -> ""
         msgBody = "REJECT " <> Git.fromBranchName origBranchName <> suffix
-    eprint $ msgBody
+    eprint msgBody
     sendProposalEmail options proposal ("Rejecting (" <> reason <> ")") (toHtml msgBody) prepushLogs ProposalFailureEmail
     Git.fetch & ignoreError
     Git.deleteBranch (Git.RemoteBranch remote rejectBranchName) & ignoreError -- in case it exists
@@ -82,26 +82,26 @@ updateProposal' options remote (proposalBranch, proposal) =
         Proposal.ProposalTypeMerge mergeType origBaseHash -> Git.withTempLocalBranch $ \tempBranchName -> do
             let proposalBranchName = Proposal.toBranchName proposal
                 ontoBranchName = Proposal.proposalBranchOnto proposal
-                remoteOntoBranch = Git.RemoteBranch remote $ ontoBranchName
+                remoteOntoBranch = Git.RemoteBranch remote ontoBranchName
 
             newBaseHash <- Git.refToHash $ Git.RefBranch remoteOntoBranch
             newBaseShortHash <- Git.shortenHash newBaseHash
             let updatedProposal = proposal { Proposal.proposalType = Proposal.ProposalTypeMerge mergeType newBaseShortHash }
                 updatedProposalBranchName = Proposal.toBranchName updatedProposal
 
-            if (updatedProposalBranchName == proposalBranchName)
+            if updatedProposalBranchName == proposalBranchName
             then return $ Just (proposalBranch, proposal) -- nothing to do
             else do
-                let remoteProposalBranch = Git.RefBranch $ Git.RemoteBranch remote $ proposalBranchName
+                let remoteProposalBranch = Git.RefBranch $ Git.RemoteBranch remote proposalBranchName
                     rebasePolicy = case mergeType of
                         Proposal.MergeTypeFlat -> Git.RebaseDropMerges
                         Proposal.MergeTypeKeepMerges -> Git.RebaseKeepMerges
 
                 Git.reset Git.ResetHard remoteProposalBranch
                 Git.rebase Git.Rebase { Git.rebaseBase = Git.RefHash origBaseHash
-                                      , Git.rebaseOnto = Git.RefBranch $ remoteOntoBranch
+                                      , Git.rebaseOnto = Git.RefBranch remoteOntoBranch
                                       , Git.rebasePolicy = rebasePolicy }
-                    `catchError` (\e -> rejectProposal options remote proposal "Rebase failed" Nothing (Just e))
+                    `catchError` (rejectProposal options remote proposal "Rebase failed" Nothing . Just)
 
                 -- create updated proposal branch
                 Git.deleteLocalBranch updatedProposalBranchName & ignoreError
@@ -138,24 +138,21 @@ withNewBranch remote b pushType act = do
             Git.checkout currentRef
             Git.deleteBranch (Git.LocalBranch b)
             Git.deleteBranch (Git.RemoteBranch remote b)
-    res <- act `catchError` (\e -> cleanup >> throwError e)
-    return res
+    act `catchError` (\e -> cleanup >> throwError e)
 
 withLocalBranch :: Git.BranchName -> EShell a -> EShell a
 withLocalBranch name act = do
+    let branch = Git.LocalBranch name
     currentRef <- Git.currentRef
     Git.deleteBranch branch & ignoreError
     Git.localBranches >>= (liftIO . mapM_ print)
-    shouldCreate <- not . elem name <$> Git.localBranches
+    shouldCreate <- notElem name <$> Git.localBranches
     when shouldCreate $ void $ Git.createLocalBranch name Git.RefHead
     Git.checkout (Git.RefBranch branch)
     let cleanup = do
             Git.checkout currentRef
             when shouldCreate $ Git.deleteBranch branch
-    res <- act `catchError` (\e -> cleanup >> throwError e)
-    return res
-    where branch = Git.LocalBranch name
-
+    act `catchError` (\e -> cleanup >> throwError e)
 
 tryTakeJob :: Proposal.ServerId -> Options -> Git.Remote -> (Git.Branch, Proposal) -> EShell (Maybe Job)
 tryTakeJob serverId options remote (proposalBranch, proposal) = do
@@ -165,7 +162,7 @@ tryTakeJob serverId options remote (proposalBranch, proposal) = do
             -- The proposal was deleted while we were working on it. Forget about it.
             eprint "Other slave took the job or proposal deleted? Dropping"
             return Nothing
-        Just (updatedProposalBranch, updatedProposal) -> do
+        Just (updatedProposalBranch, updatedProposal) ->
             tryTakeJob' serverId options remote updatedProposalBranch updatedProposal
 
 prepareMergeProposal :: Git.Remote -> Git.Branch -> Proposal -> Hash -> Git.Branch -> EShell ()
@@ -220,7 +217,7 @@ tryTakeJob' serverId options remote proposalBranch proposal = do
     let nicePrefix = if Proposal.proposalName proposal == ontoBranchName
                      then "_" -- to ensure niceBranchName never equals ontoBranchName
                      else ""
-        niceBranchName = Git.mkBranchName $ nicePrefix <> (Git.fromBranchName $ Proposal.proposalName proposal)
+        niceBranchName = Git.mkBranchName $ nicePrefix <> Git.fromBranchName (Proposal.proposalName proposal)
         niceBranch = Git.LocalBranch niceBranchName
         finalBase = Git.RefHash remoteOntoBranchHash
 
@@ -255,20 +252,20 @@ tryTakeJob' serverId options remote proposalBranch proposal = do
             Git.deleteLocalBranch niceBranchName
             jobTaken <- case Proposal.proposalStatus proposal of
                 Proposal.ProposalRejected -> error "ASSERTION FAILED! Shouldn't be taking rejected proposal"
-                Proposal.ProposalInProgress{} | inProgressBranchName == (Git.branchName proposalBranch) -> return True
+                Proposal.ProposalInProgress{} | inProgressBranchName == Git.branchName proposalBranch -> return True
                 _ -> do
                     eprint "Deleting proposal branch..."
                     (Git.deleteBranch proposalBranch >> return True)
-                        `catchError` (const $ eprint "Can't delete proposal - Other slave took the job? Dropping" >> return False)
-            case jobTaken of
-                True -> do
+                        `catchError` const (eprint "Can't delete proposal - Other slave took the job? Dropping" >> return False)
+            if jobTaken
+                then do
                     commitLogHtml <- formatCommitsForEmail options inProgressProposal commits <$> Git.remoteUrl remote
                     let title = if isDryRun options proposal
                                 then "Running dry run"
                                 else "Attempting to merge"
                     sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
                     return . Just $ Job inProgressProposal finalBase finalHead
-                False -> return Nothing
+                else return Nothing
 
 ----------------------------------------------------------------------
 
@@ -287,7 +284,7 @@ transitionProposalToTarget options remote newBase proposal targetPrefix prepushL
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack (Git.fromBranchName targetBranchName)
     let ontoBranchName = Proposal.proposalBranchOnto proposal
     when (targetBranchName == ontoBranchName)
-        $ abort $ "Can't handle branch, onto == target: " <> (Git.fromBranchName targetBranchName)
+        $ abort $ "Can't handle branch, onto == target: " <> Git.fromBranchName targetBranchName
     Git.deleteLocalBranch targetBranchName & ignoreError
     _ <- Git.createLocalBranch targetBranchName Git.RefHead
     _ <- Git.pushRemoteTracking remote targetBranchName Git.PushNonForce
@@ -296,7 +293,7 @@ transitionProposalToTarget options remote newBase proposal targetPrefix prepushL
     sendProposalEmail options proposal ("Ran successfully, moved to: " <> Proposal.prefixToText targetPrefix) "" (Just prepushLogs) ProposalSuccessEmail
 
 transitionProposalToCompletion :: Options -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
-transitionProposalToCompletion options finalHead proposal prepushLogs = do
+transitionProposalToCompletion options finalHead proposal prepushLogs =
     if isDryRun options proposal
     then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs) ProposalSuccessEmail
     else do

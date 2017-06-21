@@ -18,7 +18,7 @@ import qualified Sling.Git as Git
 import           Sling.Lib                     (EShell, abort, eproc,
                                                 eprocsL, formatEmail, eprint,
                                                 ignoreError, runEShell)
-import qualified Sling as Sling
+import qualified Sling
 import           Sling.Options (parseOpts,
                                 OptServerId(..), PrepushCmd(..), CommandType(..),
                                 PrepushMode(..),
@@ -80,7 +80,7 @@ clearCurrentProposal currentState =
 
 setStateProposal :: (Show a, Foldable t) => IORef CurrentState -> Proposal -> t a -> EShell ()
 setStateProposal currentState proposal commits = do
-    time <- liftIO $ getPOSIXTime
+    time <- liftIO getPOSIXTime
     liftIO $ modifyIORef currentState $ \state ->
         state
         { csCurrentProposal = Just (proposal, time)
@@ -157,7 +157,7 @@ runAttempt currentState options prepushCmd logDir (Sling.Job proposal finalBase 
 
     Sling.transitionProposal options origin finalBase finalHead proposal prepushLogs
 
-    eprint $ "Finished handling proposal " <> (formatProposal proposal)
+    eprint $ "Finished handling proposal " <> formatProposal proposal
 
 ----------------------------------------------------------------------
 
@@ -184,9 +184,9 @@ handleSpecificProposal serverId state options prepushCmd proposal = do
     allProposals <- getProposals
     let matchingBranches = filter (\(_b, p) -> proposal == p) allProposals
     branch <- case matchingBranches of
-        [] -> abort $ "Failed to find branch for proposal: " <> (formatProposal proposal)
+        [] -> abort $ "Failed to find branch for proposal: " <> formatProposal proposal
         [(b, _p)] -> return b
-        _ -> abort $ "Assertion failed: multiple branches matching the same proposal: " <> (formatProposal proposal)
+        _ -> abort $ "Assertion failed: multiple branches matching the same proposal: " <> formatProposal proposal
     attemptBranchOrAbort serverId state options prepushCmd branch proposal
 
 parseProposals :: [Branch] -> [(Branch, Proposal)]
@@ -216,19 +216,18 @@ getFilteredProposals serverId pollOptions = do
                 ProposalInProgress proposalServerId -> proposalServerId /= serverId
                 ProposalRejected -> False
 
-    if (optNoConcurrent pollOptions) && (any (isOnOtherServer . snd) filteredProposals)
+    if optNoConcurrent pollOptions && any (isOnOtherServer . snd) filteredProposals
         then return []
-        else return $ if (optInProgressFromAnyServer pollOptions)
+        else return $ if optInProgressFromAnyServer pollOptions
                       then filteredProposals
                       else proposalsForThisServer
 
 cleanupBranches :: EShell ()
 cleanupBranches = do
     slingLocalBranches <- map fst
-        . catMaybes
-        . map (\b -> fmap (b,) . parseProposal . Git.fromBranchName $ b)
+        . mapMaybe (\b -> fmap (b,) . parseProposal . Git.fromBranchName $ b)
         <$> Git.localBranches
-    mapM_ (\x -> (Git.deleteLocalBranch x) & ignoreError) slingLocalBranches
+    mapM_ (\x -> Git.deleteLocalBranch x & ignoreError) slingLocalBranches
 
 serverPoll :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> PollOptions -> EShell Bool
 serverPoll serverId currentState options prepushCmd pollOptions = do
@@ -272,9 +271,9 @@ serverLoop serverId currentState options prepushCmd pollOptions = do
     void $ liftIO $ forkServer (optWebServerPort options) (readIORef currentState)
     let go = do
             havePending <- serverPoll serverId currentState options prepushCmd pollOptions
-            case (optPollMode pollOptions) of
+            case optPollMode pollOptions of
                 PollModeOneShot -> return ()
-                PollModeAllQueued -> if havePending then go else return ()
+                PollModeAllQueued -> when havePending go
                 PollModeDaemon interval -> do
                     liftIO $ threadDelay $ interval*1000000
                     go
@@ -295,5 +294,5 @@ main = runEShell $ do
         CommandTypePropose (ProposalModeSingle proposal) prepushCmd -> handleSpecificProposal serverId currentState options prepushCmd proposal
         CommandTypeList pollOptions -> do
             proposals <- getFilteredProposals serverId pollOptions
-            forM_ proposals $ \(branch, proposal) -> do
+            forM_ proposals $ \(branch, proposal) ->
                 eprint (Git.fromBranchName (Git.branchName branch) <> " " <> formatEmail (proposalEmail proposal))
