@@ -281,7 +281,7 @@ main = runEShell $ do
         CommandTypeList pollOptions -> do
             proposals <- getFilteredProposals serverId pollOptions
             forM_ proposals $ \(branch, proposal) ->
-                eprint (Git.fromBranchName (Git.branchName branch) <> " " <> formatEmail (proposalEmail proposal))
+                liftIO $ putStrLn $ T.unpack $ (Git.fromBranchName (Git.branchName branch) <> " " <> formatEmail (proposalEmail proposal))
         CommandTypeRebase pollOptions -> do
             proposals <- filter (notInProgress . snd) <$> getFilteredProposals serverId pollOptions
             forM_ proposals $ Sling.updateProposal options origin
