@@ -316,6 +316,11 @@ transitionProposalToCompletion options finalHead proposal prepushLogs =
 
 transitionProposal :: Options -> Git.Remote -> Job -> Maybe PrepushLogs -> EShell ()
 transitionProposal options remote (Job proposal finalBase finalHead) prepushLogs = do
+    case Proposal.proposalStatus proposal of
+        Proposal.ProposalInProgress{} -> return ()
+        _ -> abort $ "Must not be called on proposals unless they are in progress! Got: " <> (Proposal.formatProposal proposal)
+
+
     case Options.optTargetPrefix options of
         Nothing -> transitionProposalToCompletion options finalHead proposal prepushLogs
         Just targetPrefix -> transitionProposalToTarget options remote finalBase proposal targetPrefix prepushLogs
