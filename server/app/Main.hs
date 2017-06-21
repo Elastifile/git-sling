@@ -19,7 +19,7 @@ import           Sling.Lib                     (EShell, abort, eproc,
                                                 eprocsL, formatEmail, eprint,
                                                 ignoreError, runEShell)
 import qualified Sling as Sling
-import           Sling.Options (parseOpts, isDryRun,
+import           Sling.Options (parseOpts,
                                 OptServerId(..), PrepushCmd(..), CommandType(..),
                                 PrepushMode(..),
                                 Options(..), PollOptions(..), PollMode(..),)
@@ -131,66 +131,10 @@ setStateProposal currentState proposal commits = do
     eprint "Commits: "
     mapM_ (eprint . T.pack . show) commits
 
-safeCreateBranch :: Git.BranchName -> Git.PushType -> EShell ()
-safeCreateBranch targetBranchName pushType = do
-    Git.deleteLocalBranch targetBranchName & ignoreError
-    _ <- Git.createLocalBranch targetBranchName RefHead
-    _ <- Git.pushRemoteTracking origin targetBranchName pushType
-    return ()
-
 deleteLocalAndRemote :: Git.BranchName -> EShell ()
 deleteLocalAndRemote b = do
     Git.deleteBranch (Git.LocalBranch b)
     Git.deleteBranch (RemoteBranch origin b)
-
-transitionProposalToTarget :: Options -> Git.Ref -> Proposal -> Prefix -> PrepushLogs -> EShell ()
-transitionProposalToTarget options newBase proposal targetPrefix prepushLogs = do
-    newBaseHash <- Git.refToHash newBase
-    shortBaseHash <- Git.shortenHash newBaseHash
-    let updatedProposalType = case proposalType proposal of
-            ProposalTypeMerge mergeType _oldBase -> ProposalTypeMerge mergeType shortBaseHash
-            ProposalTypeRebase name -> ProposalTypeRebase name
-
-        targetBranchName = Proposal.toBranchName $ proposal { proposalPrefix = Just targetPrefix
-                                                            , proposalType = updatedProposalType
-                                                            , proposalStatus = ProposalProposed }
-    eprint . T.pack $ "Creating target proposal branch: " <> T.unpack (Git.fromBranchName targetBranchName)
-    when (targetBranchName == ontoBranchName)
-        $ abort $ "Can't handle branch, onto == target: " <> (Git.fromBranchName targetBranchName)
-    safeCreateBranch targetBranchName Git.PushNonForce
-    Git.checkout (RefBranch $ LocalBranch ontoBranchName)
-    Git.deleteLocalBranch targetBranchName
-    sendProposalEmail options proposal ("Ran successfully, moved to: " <> prefixToText targetPrefix) "" (Just prepushLogs) ProposalSuccessEmail
-    return ()
-    where
-        ontoBranchName = proposalBranchOnto proposal
-
-transitionProposalToCompletion :: Options -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
-transitionProposalToCompletion options finalHead proposal prepushLogs = do
-    if isDryRun options proposal
-    then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs) ProposalSuccessEmail
-    else do
-        case proposalType proposal of
-            ProposalTypeMerge _mergeType _baseRef -> do
-                eprint $ "Updating: " <> Git.fromBranchName ontoBranchName
-                Git.checkout (RefBranch $ LocalBranch ontoBranchName)
-                Git.push
-            ProposalTypeRebase name  -> do
-                eprint $ "Updating: " <> Git.fromBranchName name
-                Git.deleteLocalBranch name & ignoreError
-                Git.checkout (RefBranch $ LocalBranch name)
-                Git.reset Git.ResetHard finalHead
-                Git.pushForceWithLease
-
-        sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs) ProposalSuccessEmail
-    where
-        ontoBranchName = proposalBranchOnto proposal
-
-transitionProposal :: Options -> Git.Ref -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
-transitionProposal options finalBase finalHead proposal prepushLogs =
-    case optTargetPrefix options of
-        Nothing -> transitionProposalToCompletion options finalHead proposal prepushLogs
-        Just targetPrefix -> transitionProposalToTarget options finalBase proposal targetPrefix prepushLogs
 
 runAttempt ::
     IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Sling.Job -> EShell ()
@@ -207,7 +151,7 @@ runAttempt currentState options prepushCmd logDir (Sling.Job proposal inProgress
     -- TODO ensure not dirty
     eprint "Prepush command ran succesfully"
 
-    transitionProposal options finalBase finalHead proposal prepushLogs
+    Sling.transitionProposal options origin finalBase finalHead proposal prepushLogs
 
     curHash <- Git.currentRefHash
     Git.checkout $ Git.RefHash curHash

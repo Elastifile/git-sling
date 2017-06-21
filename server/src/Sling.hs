@@ -4,6 +4,7 @@ module Sling
     , tryTakeJob
     , rejectProposal
     , updateProposal
+    , transitionProposal
     ) where
 
 import           Control.Monad (unless, when, void)
@@ -19,6 +20,7 @@ import qualified Sling.Git as Git
 import           Sling.Email (sendProposalEmail, formatCommitsForEmail, EmailType(..))
 import           Sling.Lib (EShell, Hash, ignoreError, assert, eprint, abort)
 import           Sling.Options (Options, isDryRun)
+import qualified Sling.Options as Options
 import           Sling.Prepush (PrepushLogs(..))
 import qualified Sling.Proposal as Proposal
 import           Sling.Proposal (Proposal)
@@ -267,3 +269,53 @@ tryTakeJob' serverId options remote proposalBranch proposal = do
                     sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
                     return . Just $ Job proposal inProgressBranchName finalBase finalHead
                 False -> return Nothing
+
+----------------------------------------------------------------------
+
+transitionProposalToTarget :: Options -> Git.Remote -> Git.Ref -> Proposal -> Proposal.Prefix -> PrepushLogs -> EShell ()
+transitionProposalToTarget options remote newBase proposal targetPrefix prepushLogs = do
+    newBaseHash <- Git.refToHash newBase
+    shortBaseHash <- Git.shortenHash newBaseHash
+    let updatedProposalType = case Proposal.proposalType proposal of
+            Proposal.ProposalTypeMerge mergeType _oldBase -> Proposal.ProposalTypeMerge mergeType shortBaseHash
+            Proposal.ProposalTypeRebase name              -> Proposal.ProposalTypeRebase name
+
+        targetBranchName = Proposal.toBranchName $ proposal { Proposal.proposalPrefix = Just targetPrefix
+                                                            , Proposal.proposalType = updatedProposalType
+                                                            , Proposal.proposalStatus = Proposal.ProposalProposed }
+    eprint . T.pack $ "Creating target proposal branch: " <> T.unpack (Git.fromBranchName targetBranchName)
+    let ontoBranchName = Proposal.proposalBranchOnto proposal
+    when (targetBranchName == ontoBranchName)
+        $ abort $ "Can't handle branch, onto == target: " <> (Git.fromBranchName targetBranchName)
+    Git.deleteLocalBranch targetBranchName & ignoreError
+    _ <- Git.createLocalBranch targetBranchName Git.RefHead
+    _ <- Git.pushRemoteTracking remote targetBranchName Git.PushNonForce
+    Git.checkout (Git.RefBranch $ Git.LocalBranch ontoBranchName)
+    Git.deleteLocalBranch targetBranchName
+    sendProposalEmail options proposal ("Ran successfully, moved to: " <> Proposal.prefixToText targetPrefix) "" (Just prepushLogs) ProposalSuccessEmail
+
+transitionProposalToCompletion :: Options -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
+transitionProposalToCompletion options finalHead proposal prepushLogs = do
+    if isDryRun options proposal
+    then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs) ProposalSuccessEmail
+    else do
+        case Proposal.proposalType proposal of
+            Proposal.ProposalTypeMerge _mergeType _baseRef -> do
+                let ontoBranchName = Proposal.proposalBranchOnto proposal
+                eprint $ "Updating: " <> Git.fromBranchName ontoBranchName
+                Git.checkout (Git.RefBranch $ Git.LocalBranch ontoBranchName)
+                Git.push
+            Proposal.ProposalTypeRebase name  -> do
+                eprint $ "Updating: " <> Git.fromBranchName name
+                Git.deleteLocalBranch name & ignoreError
+                Git.checkout (Git.RefBranch $ Git.LocalBranch name)
+                Git.reset Git.ResetHard finalHead
+                Git.pushForceWithLease
+
+        sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs) ProposalSuccessEmail
+
+transitionProposal :: Options -> Git.Remote -> Git.Ref -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
+transitionProposal options remote finalBase finalHead proposal prepushLogs =
+    case Options.optTargetPrefix options of
+        Nothing -> transitionProposalToCompletion options finalHead proposal prepushLogs
+        Just targetPrefix -> transitionProposalToTarget options remote finalBase proposal targetPrefix prepushLogs
