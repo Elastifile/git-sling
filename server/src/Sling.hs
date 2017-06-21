@@ -271,7 +271,7 @@ tryTakeJob' serverId options remote proposalBranch proposal = do
 
 ----------------------------------------------------------------------
 
-transitionProposalToTarget :: Options -> Git.Remote -> Git.Ref -> Proposal -> Proposal.Prefix -> PrepushLogs -> EShell ()
+transitionProposalToTarget :: Options -> Git.Remote -> Git.Ref -> Proposal -> Proposal.Prefix -> Maybe PrepushLogs -> EShell ()
 transitionProposalToTarget options remote newBase proposal targetPrefix prepushLogs = do
     newBaseHash <- Git.refToHash newBase
     shortBaseHash <- Git.shortenHash newBaseHash
@@ -292,12 +292,12 @@ transitionProposalToTarget options remote newBase proposal targetPrefix prepushL
     _ <- Git.pushRemoteTracking remote targetBranchName Git.PushNonForce
     Git.checkout (Git.RefBranch $ Git.LocalBranch ontoBranchName)
     Git.deleteLocalBranch targetBranchName
-    sendProposalEmail options proposal ("Ran successfully, moved to: " <> Proposal.prefixToText targetPrefix) "" (Just prepushLogs) ProposalSuccessEmail
+    sendProposalEmail options proposal ("Ran successfully, moved to: " <> Proposal.prefixToText targetPrefix) "" prepushLogs ProposalSuccessEmail
 
-transitionProposalToCompletion :: Options -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
+transitionProposalToCompletion :: Options -> Git.Ref -> Proposal -> Maybe PrepushLogs -> EShell ()
 transitionProposalToCompletion options finalHead proposal prepushLogs =
     if isDryRun options proposal
-    then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" (Just prepushLogs) ProposalSuccessEmail
+    then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" prepushLogs ProposalSuccessEmail
     else do
         case Proposal.proposalType proposal of
             Proposal.ProposalTypeMerge _mergeType _baseRef -> do
@@ -312,9 +312,9 @@ transitionProposalToCompletion options finalHead proposal prepushLogs =
                 Git.reset Git.ResetHard finalHead
                 Git.pushForceWithLease
 
-        sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs) ProposalSuccessEmail
+        sendProposalEmail options proposal "Merged successfully" "" prepushLogs ProposalSuccessEmail
 
-transitionProposal :: Options -> Git.Remote -> Job -> PrepushLogs -> EShell ()
+transitionProposal :: Options -> Git.Remote -> Job -> Maybe PrepushLogs -> EShell ()
 transitionProposal options remote (Job proposal finalBase finalHead) prepushLogs = do
     case Options.optTargetPrefix options of
         Nothing -> transitionProposalToCompletion options finalHead proposal prepushLogs

@@ -90,6 +90,12 @@ setStateProposal currentState proposal commits = do
 setCurrentLogFile :: IORef CurrentState -> Text -> EShell ()
 setCurrentLogFile currentState logFileName = liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just $ T.unpack logFileName }
 
+setCurrentJob :: IORef CurrentState -> Text -> Sling.Job -> EShell ()
+setCurrentJob currentState logFileName (Sling.Job proposal baseRef headRef) = do
+    commits <- Git.log baseRef headRef
+    setStateProposal currentState proposal commits
+    setCurrentLogFile currentState logFileName
+
 ----------------------------------------------------------------------
 
 abortAttempt :: IORef CurrentState -> Options -> Proposal -> (Text, ExitCode) -> EShell a
@@ -117,19 +123,17 @@ attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = 
     case job' of
         Nothing -> return () -- ignore
         Just job -> do
-            commits <- Git.log (Sling.jobBase job) (Sling.jobHead job)
-            setStateProposal currentState proposal commits
 
             dirPath <- FP.decodeString <$> liftIO (createTempDirectory "/tmp" "sling.log")
             logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP dirPath, "prepush.XXXXXXX.txt"]
             let prepushLogs = PrepushLogs dirPath (FP.fromText logFileName)
 
-            setCurrentLogFile currentState logFileName
+            setCurrentJob currentState logFileName job
 
             -- DO IT!
             Sling.runPrepush options origin prepushCmd prepushLogs job
 
-            Sling.transitionProposal options origin job prepushLogs
+            Sling.transitionProposal options origin job (Just prepushLogs)
             eprint $ "Finished handling proposal " <> formatProposal proposal
 
 ----------------------------------------------------------------------
