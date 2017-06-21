@@ -30,15 +30,15 @@ import           Sling.Proposal (Proposal)
 data Job
     = Job
     { jobProposal :: Proposal
-    , jobInProgressBranchName :: Git.BranchName
     , jobBase :: Git.Ref
     , jobHead :: Git.Ref
     } deriving (Show)
 
 
-rejectProposal :: Options -> Git.Remote -> Git.BranchName -> Proposal -> Text -> Maybe PrepushLogs -> Maybe (Text, ExitCode) -> EShell ()
-rejectProposal options remote origBranchName proposal reason prepushLogs err = do
-    let rejectedProposal = proposal { Proposal.proposalStatus = Proposal.ProposalRejected }
+rejectProposal :: Options -> Git.Remote -> Proposal -> Text -> Maybe PrepushLogs -> Maybe (Text, ExitCode) -> EShell ()
+rejectProposal options remote proposal reason prepushLogs err = do
+    let origBranchName = Proposal.toBranchName proposal
+        rejectedProposal = proposal { Proposal.proposalStatus = Proposal.ProposalRejected }
         rejectBranchName = Proposal.toBranchName rejectedProposal
         suffix = case err of
             Just (msg, errCode) -> " because: '" <> reason <> "' (" <> msg <> "), exit code = " <> T.pack (show errCode)
@@ -54,7 +54,7 @@ rejectProposal options remote origBranchName proposal reason prepushLogs err = d
     _ <- Git.pushRemoteTracking remote rejectBranchName Git.PushForceWithoutLease
     -- We have to be on another branch before deleting stuff, so arbitrarily picking rejected branch
     Git.checkout (Git.RefBranch $ Git.LocalBranch rejectBranchName)
-    Git.deleteBranch (Git.LocalBranch $ Proposal.toBranchName proposal) & ignoreError
+    Git.deleteBranch (Git.LocalBranch origBranchName) & ignoreError
     Git.deleteBranch (Git.RemoteBranch remote origBranchName)
     abort "Rejected"
 
@@ -62,10 +62,9 @@ rejectProposal options remote origBranchName proposal reason prepushLogs err = d
 verifyProposal :: Options -> Git.Remote -> Proposal -> EShell ()
 verifyProposal options remote proposal = do
     let ontoBranchName = Proposal.proposalBranchOnto proposal
-        proposalBranchName = Proposal.toBranchName proposal
     remoteBranches <- Git.remoteBranches
     unless ((remote, ontoBranchName) `elem` remoteBranches)
-        $ Sling.rejectProposal options remote proposalBranchName proposal ("Remote branch doesn't exist: " <> Git.fromBranchName ontoBranchName) Nothing Nothing
+        $ Sling.rejectProposal options remote proposal ("Remote branch doesn't exist: " <> Git.fromBranchName ontoBranchName) Nothing Nothing
     -- TODO: Add check that base hash (for merge proposals) is in range of commits that makes sense
 
 -- Rebases given proposal over latest known state of its target branch
@@ -102,7 +101,7 @@ updateProposal' options remote (proposalBranch, proposal) =
                 Git.rebase Git.Rebase { Git.rebaseBase = Git.RefHash origBaseHash
                                       , Git.rebaseOnto = Git.RefBranch $ remoteOntoBranch
                                       , Git.rebasePolicy = rebasePolicy }
-                    `catchError` (\e -> rejectProposal options remote proposalBranchName proposal "Rebase failed" Nothing (Just e))
+                    `catchError` (\e -> rejectProposal options remote proposal "Rebase failed" Nothing (Just e))
 
                 -- create updated proposal branch
                 Git.deleteLocalBranch updatedProposalBranchName & ignoreError
@@ -238,7 +237,7 @@ tryTakeJob' serverId options remote proposalBranch proposal = do
                                         Git.rebaseOnto = remoteOnto,
                                         Git.rebasePolicy = Git.RebaseKeepMerges
                                       }
-                    `catchError` (Sling.rejectProposal options remote (Git.branchName proposalBranch) proposal "Rebase failed" Nothing . Just)
+                    `catchError` (Sling.rejectProposal options remote proposal "Rebase failed" Nothing . Just)
                 -- rebase succeeded, we can now take this job
 
         finalHead <- Git.currentRef
@@ -248,7 +247,8 @@ tryTakeJob' serverId options remote proposalBranch proposal = do
                 Proposal.ProposalInProgress{} -> Git.PushForceWithoutLease -- can't use lease to create new branch. stupid git.
                 _                             -> Git.PushNonForce
 
-            inProgressBranchName = Proposal.toBranchName $ proposal { Proposal.proposalStatus = Proposal.ProposalInProgress serverId }
+            inProgressProposal = proposal { Proposal.proposalStatus = Proposal.ProposalInProgress serverId }
+            inProgressBranchName = Proposal.toBranchName inProgressProposal
         eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack (Git.fromBranchName inProgressBranchName)
 
         withNewBranch remote inProgressBranchName forceCreateInProgress $ do
@@ -262,12 +262,12 @@ tryTakeJob' serverId options remote proposalBranch proposal = do
                         `catchError` (const $ eprint "Can't delete proposal - Other slave took the job? Dropping" >> return False)
             case jobTaken of
                 True -> do
-                    commitLogHtml <- formatCommitsForEmail options proposal commits <$> Git.remoteUrl remote
+                    commitLogHtml <- formatCommitsForEmail options inProgressProposal commits <$> Git.remoteUrl remote
                     let title = if isDryRun options proposal
                                 then "Running dry run"
                                 else "Attempting to merge"
                     sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
-                    return . Just $ Job proposal inProgressBranchName finalBase finalHead
+                    return . Just $ Job inProgressProposal finalBase finalHead
                 False -> return Nothing
 
 ----------------------------------------------------------------------
@@ -280,9 +280,10 @@ transitionProposalToTarget options remote newBase proposal targetPrefix prepushL
             Proposal.ProposalTypeMerge mergeType _oldBase -> Proposal.ProposalTypeMerge mergeType shortBaseHash
             Proposal.ProposalTypeRebase name              -> Proposal.ProposalTypeRebase name
 
-        targetBranchName = Proposal.toBranchName $ proposal { Proposal.proposalPrefix = Just targetPrefix
-                                                            , Proposal.proposalType = updatedProposalType
-                                                            , Proposal.proposalStatus = Proposal.ProposalProposed }
+        updatedProposal = proposal { Proposal.proposalPrefix = Just targetPrefix
+                                   , Proposal.proposalType = updatedProposalType
+                                   , Proposal.proposalStatus = Proposal.ProposalProposed }
+        targetBranchName = Proposal.toBranchName updatedProposal
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack (Git.fromBranchName targetBranchName)
     let ontoBranchName = Proposal.proposalBranchOnto proposal
     when (targetBranchName == ontoBranchName)
@@ -315,7 +316,13 @@ transitionProposalToCompletion options finalHead proposal prepushLogs = do
         sendProposalEmail options proposal "Merged successfully" "" (Just prepushLogs) ProposalSuccessEmail
 
 transitionProposal :: Options -> Git.Remote -> Git.Ref -> Git.Ref -> Proposal -> PrepushLogs -> EShell ()
-transitionProposal options remote finalBase finalHead proposal prepushLogs =
+transitionProposal options remote finalBase finalHead proposal prepushLogs = do
     case Options.optTargetPrefix options of
         Nothing -> transitionProposalToCompletion options finalHead proposal prepushLogs
         Just targetPrefix -> transitionProposalToTarget options remote finalBase proposal targetPrefix prepushLogs
+
+    -- Cleanup
+    curHash <- Git.currentRefHash
+    Git.checkout $ Git.RefHash curHash
+    Git.deleteBranch (Git.LocalBranch $ Proposal.toBranchName proposal)
+    Git.deleteBranch (Git.RemoteBranch remote $ Proposal.toBranchName proposal)

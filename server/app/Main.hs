@@ -131,14 +131,9 @@ setStateProposal currentState proposal commits = do
     eprint "Commits: "
     mapM_ (eprint . T.pack . show) commits
 
-deleteLocalAndRemote :: Git.BranchName -> EShell ()
-deleteLocalAndRemote b = do
-    Git.deleteBranch (Git.LocalBranch b)
-    Git.deleteBranch (RemoteBranch origin b)
-
 runAttempt ::
     IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Sling.Job -> EShell ()
-runAttempt currentState options prepushCmd logDir (Sling.Job proposal inProgressBranchName finalBase finalHead) = do
+runAttempt currentState options prepushCmd logDir (Sling.Job proposal finalBase finalHead) = do
     -- DO IT!
     logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
     let prepushLogs = PrepushLogs logDir (FP.fromText logFileName)
@@ -146,16 +141,12 @@ runAttempt currentState options prepushCmd logDir (Sling.Job proposal inProgress
     liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just $ T.unpack logFileName }
 
     runPrepush prepushLogs prepushCmd finalBase finalHead
-        `catchError` (Sling.rejectProposal options origin inProgressBranchName proposal "Prepush command failed" (Just prepushLogs) . Just)
+        `catchError` (Sling.rejectProposal options origin proposal "Prepush command failed" (Just prepushLogs) . Just)
 
     -- TODO ensure not dirty
     eprint "Prepush command ran succesfully"
 
     Sling.transitionProposal options origin finalBase finalHead proposal prepushLogs
-
-    curHash <- Git.currentRefHash
-    Git.checkout $ Git.RefHash curHash
-    deleteLocalAndRemote inProgressBranchName
 
     eprint $ "Finished handling proposal " <> (formatProposal proposal)
 
