@@ -49,20 +49,6 @@ import           Prelude hiding (FilePath)
 pollingInterval :: Int
 pollingInterval = 1000000 * 10
 
-runPrepush :: PrepushLogs -> PrepushCmd -> Ref -> Ref -> EShell ()
-runPrepush (PrepushLogs logDir logFile) (PrepushCmd cmd) baseR headR = do
-    let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
-        env_str = "SLING_LOG_DIR=" <> encodeFP logDir
-        bashArgs = [ "-o", "pipefail", "-c"
-                   , " ( exec 2>&1; " <> env_str <> " " <> args
-                     <> " ) | tee " <> encodeFP logFile]
-    eprint $ "Executing bash with: '" <> mconcat bashArgs <> "' output goes to: " <> encodeFP logFile
-    eprint "----------------------------------------------------------------------"
-    eproc "bash" bashArgs (return "")
-    eprint "----------------------------------------------------------------------"
-    -- TODO delete log if successful?
-    return ()
-
 origin :: Remote
 origin = Remote "origin"
 
@@ -77,6 +63,14 @@ resetLocalOnto proposal = do
         Git.checkout localOntoBranch
         Git.reset Git.ResetHard remoteOntoBranch
 
+cleanupGit :: Proposal -> EShell ()
+cleanupGit proposal = do
+    Git.rebaseAbort & ignoreError
+    Git.reset Git.ResetHard RefHead
+    resetLocalOnto proposal
+
+----------------------------------------------------------------------
+
 clearCurrentProposal :: IORef CurrentState -> IO ()
 clearCurrentProposal currentState =
     modifyIORef currentState $ \state ->
@@ -84,11 +78,21 @@ clearCurrentProposal currentState =
         { csCurrentProposal = Nothing
         , csCurrentLogFile = Nothing }
 
-cleanupGit :: Proposal -> EShell ()
-cleanupGit proposal = do
-    Git.rebaseAbort & ignoreError
-    Git.reset Git.ResetHard RefHead
-    resetLocalOnto proposal
+setStateProposal :: (Show a, Foldable t) => IORef CurrentState -> Proposal -> t a -> EShell ()
+setStateProposal currentState proposal commits = do
+    time <- liftIO $ getPOSIXTime
+    liftIO $ modifyIORef currentState $ \state ->
+        state
+        { csCurrentProposal = Just (proposal, time)
+        }
+    eprint $ "Attempting proposal: " <> formatProposal proposal
+    eprint "Commits: "
+    mapM_ (eprint . T.pack . show) commits
+
+setCurrentLogFile :: IORef CurrentState -> Text -> EShell ()
+setCurrentLogFile currentState logFileName = liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just $ T.unpack logFileName }
+
+----------------------------------------------------------------------
 
 abortAttempt :: IORef CurrentState -> Options -> Proposal -> (Text, ExitCode) -> EShell ()
 abortAttempt currentState options proposal (msg, _err) = do
@@ -101,6 +105,22 @@ abortAttempt currentState options proposal (msg, _err) = do
 slingBranchName :: Maybe Prefix -> Text -> Git.BranchName
 slingBranchName Nothing suffix = mkBranchName suffix
 slingBranchName (Just prefix) suffix = mkBranchName $ prefixToText prefix <> suffix
+
+----------------------------------------------------------------------
+
+runPrepush :: PrepushLogs -> PrepushCmd -> Ref -> Ref -> EShell ()
+runPrepush (PrepushLogs logDir logFile) (PrepushCmd cmd) baseR headR = do
+    let args = T.intercalate " " $ map T.pack cmd ++ [Git.refName baseR, Git.refName headR]
+        env_str = "SLING_LOG_DIR=" <> encodeFP logDir
+        bashArgs = [ "-o", "pipefail", "-c"
+                   , " ( exec 2>&1; " <> env_str <> " " <> args
+                     <> " ) | tee " <> encodeFP logFile]
+    eprint $ "Executing bash with: '" <> mconcat bashArgs <> "' output goes to: " <> encodeFP logFile
+    eprint "----------------------------------------------------------------------"
+    eproc "bash" bashArgs (return "")
+    eprint "----------------------------------------------------------------------"
+    -- TODO delete log if successful?
+    return ()
 
 attemptBranchOrAbort :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Branch -> Proposal -> EShell ()
 attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = do
@@ -120,17 +140,6 @@ attemptBranchOrAbort serverId currentState options prepushCmd branch proposal = 
             runAttempt currentState options prepushCmd dirPath job
             `catchError` abortAttempt currentState options proposal
 
-setStateProposal :: (Show a, Foldable t) => IORef CurrentState -> Proposal -> t a -> EShell ()
-setStateProposal currentState proposal commits = do
-    time <- liftIO $ getPOSIXTime
-    liftIO $ modifyIORef currentState $ \state ->
-        state
-        { csCurrentProposal = Just (proposal, time)
-        }
-    eprint $ "Attempting proposal: " <> formatProposal proposal
-    eprint "Commits: "
-    mapM_ (eprint . T.pack . show) commits
-
 runAttempt ::
     IORef CurrentState -> Options -> PrepushCmd -> FilePath -> Sling.Job -> EShell ()
 runAttempt currentState options prepushCmd logDir (Sling.Job proposal finalBase finalHead) = do
@@ -138,7 +147,7 @@ runAttempt currentState options prepushCmd logDir (Sling.Job proposal finalBase 
     logFileName <- head <$> eprocsL "mktemp" ["-p", encodeFP logDir, "prepush.XXXXXXX.txt"]
     let prepushLogs = PrepushLogs logDir (FP.fromText logFileName)
 
-    liftIO $ modifyIORef currentState $ \state -> state { csCurrentLogFile = Just $ T.unpack logFileName }
+    setCurrentLogFile currentState logFileName
 
     runPrepush prepushLogs prepushCmd finalBase finalHead
         `catchError` (Sling.rejectProposal options origin proposal "Prepush command failed" (Just prepushLogs) . Just)
@@ -149,6 +158,8 @@ runAttempt currentState options prepushCmd logDir (Sling.Job proposal finalBase 
     Sling.transitionProposal options origin finalBase finalHead proposal prepushLogs
 
     eprint $ "Finished handling proposal " <> (formatProposal proposal)
+
+----------------------------------------------------------------------
 
 usage :: String
 usage = List.intercalate "\n"
