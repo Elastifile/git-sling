@@ -10,6 +10,7 @@ import           Data.Char       (isAlphaNum)
 
 import           Data.DeriveTH
 import           Sling.Git
+import qualified Sling.Git as Git
 import           Sling.Lib
 import           Sling.Proposal
 
@@ -48,7 +49,7 @@ instance Arbitrary BranchName where
     arbitrary = mkBranchName . T.pack <$> do
         l <- choose (1,100)
         replicateM l branchChars
-    shrink = map (mkBranchName . T.pack) . filter (not . null) . shrink . T.unpack . fromBranchName
+    shrink = map (mkBranchName . T.pack) . filter (not . null) . shrink . T.unpack . Git.fromBranchName
 
 
 hostNameChars :: Gen Char
@@ -95,7 +96,7 @@ derive makeArbitrary ''Proposal
 derive makeArbitrary ''Branch
 derive makeArbitrary ''Ref
 derive makeArbitrary ''MergeType
-derive makeArbitrary ''MoveBranch
+derive makeArbitrary ''ProposalType
 
 -- ----------------------------------------------------------------------
 

@@ -1,5 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Sling.Proposal where
+module Sling.Proposal
+    ( Proposal (..)
+    , ProposalStatus (..)
+    , ServerId (..)
+    , MergeType (..)
+    , ProposalType (..)
+    , Prefix (..)
+    , prefixFromText
+    , prefixToText
+    , toBranchName
+    , fromBranchName
+    , formatProposal
+    , parseProposal
+    ) where
 
 import           Data.Text           (Text)
 import qualified Data.Text           as T
@@ -42,17 +55,17 @@ prefixFromText = Prefix . nonEmptyText
 data MergeType = MergeTypeFlat | MergeTypeKeepMerges
       deriving (Show, Eq, Ord)
 
-data MoveBranch
-    = MoveBranchProposed { _moveBranchName :: Git.BranchName }
-    | MoveBranchOnto { _moveMergeType :: MergeType,
-                       _moveOntoRebaseFrom :: Hash }
+data ProposalType
+    = ProposalTypeRebase { _ptBranchToRebase :: Git.BranchName }
+    | ProposalTypeMerge { _ptMergeType :: MergeType,
+                          _ptBase :: Hash }
       deriving (Show, Eq, Ord)
 
 data Proposal
     = Proposal
       { proposalEmail      :: Email
       , proposalName       :: Git.BranchName -- not really a branch, but it will be used as a branch name
-      , proposalMove       :: MoveBranch
+      , proposalType       :: ProposalType
       , proposalBranchOnto :: Git.BranchName
       , proposalQueueIndex :: NatInt
       , proposalStatus     :: ProposalStatus
@@ -79,19 +92,22 @@ formatBranchName = T.replace "/" slashEscape . Git.fromBranchName
 branchNamePat :: Pattern Git.BranchName
 branchNamePat = Git.mkBranchName . T.replace slashEscape "/" . T.pack <$> some (notChar '#')
 
-moveOntoPrefix :: Text
-moveOntoPrefix = "base"
+proposalTypeMergePrefix :: Text
+proposalTypeMergePrefix = "base"
 
-moveProposedPrefix :: Text
-moveProposedPrefix = "rebase"
+proposalTypeRebasePrefix :: Text
+proposalTypeRebasePrefix = "rebase"
 
 mergeTypePrefix :: MergeType -> Text
 mergeTypePrefix MergeTypeKeepMerges = "-keep"
 mergeTypePrefix MergeTypeFlat = ""
 
-formatMoveBranch :: MoveBranch -> Text
-formatMoveBranch (MoveBranchOnto mergeType ref) = moveOntoPrefix <> mergeTypePrefix mergeType <> "/" <> fromHash ref
-formatMoveBranch (MoveBranchProposed name) = moveProposedPrefix <> "/" <> (formatBranchName name)
+formatProposalType :: ProposalType -> Text
+formatProposalType (ProposalTypeMerge mergeType ref) = proposalTypeMergePrefix <> mergeTypePrefix mergeType <> "/" <> fromHash ref
+formatProposalType (ProposalTypeRebase name) = proposalTypeRebasePrefix <> "/" <> (formatBranchName name)
+
+toBranchName :: Proposal -> Git.BranchName
+toBranchName = Git.mkBranchName . formatProposal
 
 formatProposal :: Proposal -> Text
 formatProposal p = "sling/" <> prefix <> "/" <> suffix
@@ -104,7 +120,7 @@ formatProposal p = "sling/" <> prefix <> "/" <> suffix
         suffix =
             T.pack (show . fromNatInt . proposalQueueIndex $ p)
             <> "/" <> formatBranchName (proposalName p)
-            <> "/" <> formatMoveBranch (proposalMove p)
+            <> "/" <> formatProposalType (proposalType p)
             <> "/" <> (if proposalDryRun p then dryRunOntoPrefix else ontoPrefix)
             <> "/" <> formatBranchName (proposalBranchOnto p)
             <> "/user/" <> formatSepEmail "-at-" (proposalEmail p)
@@ -125,9 +141,9 @@ mergeTypePat :: Pattern MergeType
 mergeTypePat = (text (mergeTypePrefix MergeTypeKeepMerges) *> pure MergeTypeKeepMerges)
     <|> (pure MergeTypeFlat)
 
-movePat :: Pattern MoveBranch
-movePat = (text moveOntoPrefix *> (MoveBranchOnto <$> mergeTypePat <*> (fieldSep *> hashPat)))
-    <|> (text moveProposedPrefix *> fieldSep *> (MoveBranchProposed <$> branchNamePat))
+movePat :: Pattern ProposalType
+movePat = (text proposalTypeMergePrefix *> (ProposalTypeMerge <$> mergeTypePat <*> (fieldSep *> hashPat)))
+    <|> (text proposalTypeRebasePrefix *> fieldSep *> (ProposalTypeRebase <$> branchNamePat))
 
 proposalPat :: Pattern Proposal
 proposalPat = do
@@ -164,6 +180,9 @@ proposalPat = do
 
 parseProposal :: Text -> Maybe Proposal
 parseProposal = singleMatch proposalPat
+
+fromBranchName :: Git.BranchName -> Maybe Proposal
+fromBranchName = parseProposal . Git.fromBranchName
 
 slingPrefix :: Text
 slingPrefix = "sling"

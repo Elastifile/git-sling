@@ -146,6 +146,7 @@ sendProposalEmail options proposal subject body prepushLogs emailType = do
             eprocsIn (head $ optEmailClient options) (tail (optEmailClient options) ++ [formatEmail $ proposalEmail proposal]) $ return (L.toStrict $ LE.decodeUtf8 renderdBS)
 
     eprint $ "Sending email (async) to: " <> formatEmail (proposalEmail proposal) <> " with subject: " <> subject
+    -- TODO turtle is terrible at interleaving the outputs here. Better to replace with non-turtle stuff.
     liftIO $ void $ forkIO $ runEShell $ do
         sendEmailWith FullAttachment
         `catchError`

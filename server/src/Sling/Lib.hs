@@ -2,6 +2,7 @@
 module Sling.Lib where
 
 import System.Exit (exitWith)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import           Control.Monad.Trans.Either (EitherT, left, mapEitherT,
                                              runEitherT)
@@ -19,6 +20,8 @@ import qualified System.IO
 
 -- Turtle stuff
 
+-- TODO: EShell a is a stream of a's, but throught sling we use it as
+-- if it were IO a, which is wrong.
 type EShell a = EitherT (Text, ExitCode) Shell a
 
 eprintTo :: System.IO.Handle -> Text -> EShell ()
@@ -27,15 +30,12 @@ eprintTo x t = liftIO $ do
     System.IO.hFlush x
 
 eprint :: Text -> EShell ()
-eprint = eprintTo System.IO.stdout
-
-estderr :: Text -> EShell ()
-estderr = eprintTo System.IO.stderr
+eprint = eprintTo System.IO.stderr
 
 eproc :: Text -> [Text] -> Shell Text -> EShell ()
 eproc cmd args input = do
     let cmdStr = T.intercalate " " (cmd:args)
-    estderr $ "$ " <> cmdStr
+    eprint $ "$ " <> cmdStr
     exitCode <- proc cmd args input
     case exitCode of
         ExitSuccess -> pure ()
@@ -44,12 +44,12 @@ eproc cmd args input = do
 eprocsIn :: Text -> [Text] -> Shell Text -> EShell Text
 eprocsIn cmd args input = do
     let cmdStr = T.intercalate " " (cmd:args)
-    estderr $ "$ " <> cmdStr
+    eprint $ "$ " <> cmdStr
     (exitCode, t) <- procStrict cmd args input
     case exitCode of
         ExitSuccess -> pure t
         _           -> do
-            liftIO $ putStrLn $ T.unpack t
+            eprint t
             left ("Command failed: " <> cmdStr, exitCode)
 
 eprocs :: Text -> [Text] -> EShell Text
@@ -77,7 +77,7 @@ safe f xs = Just $ f xs
 
 abort :: Text -> EShell a
 abort msg = do
-    estderr msg
+    eprint msg
     left (msg, ExitFailure 1)
 
 runEShell :: EShell a -> IO ()
@@ -107,6 +107,9 @@ ignoreError act = sh $ do
 
 someText :: Pattern Text
 someText = T.pack <$> some anyChar
+
+assert :: (a -> b -> Bool) -> a -> b -> Maybe Text -> EShell ()
+assert f a b e = when (not $ f a b) $ abort ("ASSERTION FAILED: " <> maybe "" id e)
 
 -- ----------------------------------------------------------------------
 

@@ -64,9 +64,9 @@ refTraverseHash _ RefHead = pure RefHead
 refTraverseHash f (RefHash h) = RefHash <$> f h
 refTraverseHash f (RefParent r n) = flip RefParent n <$> refTraverseHash f r
 
-branchName :: Branch -> Text
-branchName (LocalBranch n) = fromBranchName n
-branchName (RemoteBranch _ n) = fromBranchName n
+branchName :: Branch -> BranchName
+branchName (LocalBranch n) = n
+branchName (RemoteBranch _ n) = n
 
 branchFullName :: Branch -> Text
 branchFullName (LocalBranch n) = fromBranchName n
@@ -113,8 +113,14 @@ status = map (singleMatch filePat) <$> git ["status", "--porcelain"]
 shortenHash :: Hash -> EShell Hash
 shortenHash h = hash . head <$> git ["rev-parse", "--short", fromHash h]
 
-shortenRef :: Ref -> EShell Ref
-shortenRef = refTraverseHash shortenHash
+unshortenHash :: Hash -> EShell Hash
+unshortenHash h = hash . head <$> git ["rev-parse", fromHash h]
+
+-- shortenRef :: Ref -> EShell Ref
+-- shortenRef = refTraverseHash shortenHash
+
+refToHash :: Ref -> EShell Hash
+refToHash ref = hash . head <$> git ["rev-parse", refName ref]
 
 class CmdLineOption c where
     optionToText :: c -> Text
@@ -136,7 +142,7 @@ clone source target depth hash' =
     >> pure ()
 
 checkout :: Ref -> EShell ()
-checkout ref = git ["checkout", refName ref] >> pure ()
+checkout ref = git ["checkout", refName ref, "--"] >> pure ()
 
 data ResetType = ResetHard | ResetSoft | ResetMixed
     deriving (Show, Eq, Ord)
@@ -217,8 +223,8 @@ createLocalBranch name ref = do
     _ <- git ["checkout", "-b", fromBranchName name, refName ref]
     return $ LocalBranch name
 
-createRemoteTrackingBranch :: Remote -> BranchName -> PushType -> EShell Branch
-createRemoteTrackingBranch r name pushType = do
+pushRemoteTracking :: Remote -> BranchName -> PushType -> EShell Branch
+pushRemoteTracking r name pushType = do
     pushWith pushType ["-u", fromNonEmptyText $ remoteName r, fromBranchName name]
     return $ RemoteBranch r name
 
@@ -247,6 +253,46 @@ currentRefHash = hash . head <$> git ["log", "-1", "--format=%H"]
 
 currentRef :: EShell Ref
 currentRef = RefHash <$> currentRefHash
+
+currentBranch :: EShell Branch
+currentBranch = do
+    res <- git ["symbolic-ref", "--short", "HEAD"]
+    case safe head res of
+        Just name -> return $ LocalBranch $ mkBranchName $ T.strip name
+        Nothing -> abort $ "`git symbolic-ref --short HEAD` failed (note: git >= 1.8 required):\n" <> (T.intercalate "\n" res)
+
+tempBranchNamePrefix :: Text
+tempBranchNamePrefix = "sling-temp-"
+
+genLocalTempBranchName :: EShell Text
+genLocalTempBranchName = do
+    existingTempBranches <-
+        filter (T.isPrefixOf tempBranchNamePrefix)
+        . map fromBranchName
+        <$> localBranches
+    let branchNumbersT :: [Text]
+        branchNumbersT = map (T.drop (T.length tempBranchNamePrefix)) existingTempBranches
+        branchNumbers :: [Int]
+        branchNumbers = map (read . T.unpack) branchNumbersT
+        highestNum :: Int
+        highestNum = maybe 0 id $ safe maximum branchNumbers
+    return $ tempBranchNamePrefix <> T.pack (show $ highestNum + 1)
+
+withTempLocalBranch :: (BranchName -> EShell a) -> EShell a
+withTempLocalBranch act = do
+    newBranchName <- mkBranchName <$> genLocalTempBranchName
+    mCurBranch <- (Just <$> currentBranch) `catchError` (\_ -> return Nothing)
+    curRef <- currentRef
+    tempBranch <- createLocalBranch newBranchName RefHead
+    let cleanup = do
+            -- Trying going back to previous branch, if there wasn't any or it was deleted just go to that ref hash
+            case mCurBranch of
+                Just curBranch -> checkout (RefBranch curBranch) `catchError` (\_ -> checkout curRef)
+                Nothing -> checkout curRef
+            deleteBranch tempBranch
+    res <- act newBranchName `catchError` (\e -> cleanup >> throwError e)
+    cleanup
+    return res
 
 isMergeCommit :: Ref -> EShell Bool
 isMergeCommit ref = do
