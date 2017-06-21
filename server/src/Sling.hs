@@ -108,7 +108,7 @@ updateProposal' options remote (proposalBranch, proposal) =
                 Git.deleteLocalBranch updatedProposalBranchName & ignoreError
                 _ <- Git.createLocalBranch updatedProposalBranchName Git.RefHead
 
-                createdRemoteBranch <- Git.pushRemoteTracking remote updatedProposalBranchName Git.PushForceWithLease
+                createdRemoteBranch <- Git.pushRemoteTracking remote updatedProposalBranchName Git.PushNonForce
                 assert (==) createdRemoteBranch (Git.RemoteBranch remote updatedProposalBranchName) Nothing
 
                 Git.checkout (Git.RefBranch $ Git.LocalBranch tempBranchName)
