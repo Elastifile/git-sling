@@ -126,8 +126,9 @@ formatProposalEmail options proposal subject body prepushLogs includeAttachment 
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
         (Mail.Address Nothing $ formatEmail sourceEmail)
         ((if isDryRun options proposal then "(dry run) " else "")
-         <> Git.fromBranchName (proposalName proposal)
-         <> " (" <> formatProposal proposal <> ")")
+         <> "#" <> (T.pack . show $ proposalQueueIndex proposal)
+         <> " " <> Git.fromBranchName (proposalName proposal)
+         <> " onto " <> Git.fromBranchName (proposalBranchOnto proposal) <> "")
         ""
         html
         []
