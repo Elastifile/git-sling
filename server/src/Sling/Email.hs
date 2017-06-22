@@ -29,7 +29,7 @@ import           Turtle (echo)
 import           Network.BSD (getHostName)
 
 import qualified Sling.Git as Git
-import           Sling.Lib                     (EShell, Email (..), fromHash,
+import           Sling.Lib                     (EShell, Email (..), fromHash, NatInt(..),
                                                 eprocsIn, eprocsL, formatEmail, eprint,
                                                 runEShell)
 import           Sling.Path (encodeFP)
@@ -126,7 +126,7 @@ formatProposalEmail options proposal subject body prepushLogs includeAttachment 
         (Mail.Address Nothing $ formatEmail $ proposalEmail proposal)
         (Mail.Address Nothing $ formatEmail sourceEmail)
         ((if isDryRun options proposal then "(dry run) " else "")
-         <> "#" <> (T.pack . show $ proposalQueueIndex proposal)
+         <> "#" <> (T.pack . show . fromNatInt $ proposalQueueIndex proposal)
          <> " " <> Git.fromBranchName (proposalName proposal)
          <> " onto " <> Git.fromBranchName (proposalBranchOnto proposal) <> "")
         ""
