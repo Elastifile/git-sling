@@ -18,7 +18,7 @@ import           Turtle ((&), ExitCode)
 
 import qualified Sling.Git as Git
 import           Sling.Email (sendProposalEmail, formatCommitsForEmail, EmailType(..))
-import           Sling.Lib (EShell, Hash, ignoreError, assert, eprint, abort, eproc)
+import           Sling.Lib (EShell, Hash(..), ignoreError, assert, eprint, abort, eproc)
 import           Sling.Options (Options, isDryRun)
 import qualified Sling.Options as Options
 import           Sling.Path (encodeFP)
@@ -35,6 +35,20 @@ data Job
     , jobHead :: Git.Ref
     } deriving (Show)
 
+makeUnique :: Proposal -> EShell Proposal
+makeUnique proposal = do
+    remoteBranches <- map snd <$> Git.remoteBranches
+    let proposalBranch = Proposal.toBranchName proposal
+    if proposalBranch `elem` remoteBranches
+        then do
+        let oldName = Git.fromBranchName $ Proposal.proposalName proposal
+            withSuffix sfx = proposal { Proposal.proposalName = Git.mkBranchName $ oldName <> "_" <> T.pack (show sfx) }
+            go n = if Proposal.toBranchName newProposal `elem` remoteBranches
+                   then go (n+1)
+                   else newProposal
+                where newProposal = withSuffix n
+        return $ go (1 :: Int)
+        else return proposal
 
 rejectProposal :: Options -> Git.Remote -> Proposal -> Text -> Maybe PrepushLogs -> Maybe (Text, ExitCode) -> EShell ()
 rejectProposal options remote proposal reason prepushLogs err = do
@@ -87,13 +101,13 @@ updateProposal' options remote (proposalBranch, proposal) =
 
             newBaseHash <- Git.refToHash $ Git.RefBranch remoteOntoBranch
             newBaseShortHash <- Git.shortenHash newBaseHash
-            let updatedProposal = proposal { Proposal.proposalType = Proposal.ProposalTypeMerge mergeType newBaseShortHash }
-                updatedProposalBranchName = Proposal.toBranchName updatedProposal
-
-            if updatedProposalBranchName == proposalBranchName
+            eprint $ "Comparing base hashes: " <> T.intercalate " " (map (T.pack . show) [newBaseShortHash, origBaseHash])
+            if newBaseShortHash == origBaseHash
             then return $ Just (proposalBranch, proposal) -- nothing to do
             else do
-                let remoteProposalBranch = Git.RefBranch $ Git.RemoteBranch remote proposalBranchName
+                updatedProposal <- makeUnique proposal { Proposal.proposalType = Proposal.ProposalTypeMerge mergeType newBaseShortHash }
+                let updatedProposalBranchName = Proposal.toBranchName updatedProposal
+                    remoteProposalBranch = Git.RefBranch $ Git.RemoteBranch remote proposalBranchName
                     rebasePolicy = case mergeType of
                         Proposal.MergeTypeFlat -> Git.RebaseDropMerges
                         Proposal.MergeTypeKeepMerges -> Git.RebaseKeepMerges
@@ -244,8 +258,8 @@ tryTakeJob' serverId options remote proposalBranch proposal = do
                 Proposal.ProposalInProgress{} -> Git.PushForceWithoutLease -- can't use lease to create new branch. stupid git.
                 _                             -> Git.PushNonForce
 
-            inProgressProposal = proposal { Proposal.proposalStatus = Proposal.ProposalInProgress serverId }
-            inProgressBranchName = Proposal.toBranchName inProgressProposal
+        inProgressProposal <- makeUnique proposal { Proposal.proposalStatus = Proposal.ProposalInProgress serverId }
+        let inProgressBranchName = Proposal.toBranchName inProgressProposal
         eprint . T.pack $ "Creating in-progress proposal branch: " <> T.unpack (Git.fromBranchName inProgressBranchName)
 
         withNewBranch remote inProgressBranchName forceCreateInProgress $ do
@@ -277,10 +291,10 @@ transitionProposalToTarget options remote newBase proposal targetPrefix prepushL
             Proposal.ProposalTypeMerge mergeType _oldBase -> Proposal.ProposalTypeMerge mergeType shortBaseHash
             Proposal.ProposalTypeRebase name              -> Proposal.ProposalTypeRebase name
 
-        updatedProposal = proposal { Proposal.proposalPrefix = Just targetPrefix
-                                   , Proposal.proposalType = updatedProposalType
-                                   , Proposal.proposalStatus = Proposal.ProposalProposed }
-        targetBranchName = Proposal.toBranchName updatedProposal
+    updatedProposal <- makeUnique proposal { Proposal.proposalPrefix = Just targetPrefix
+                                           , Proposal.proposalType = updatedProposalType
+                                           , Proposal.proposalStatus = Proposal.ProposalProposed }
+    let targetBranchName = Proposal.toBranchName updatedProposal
     eprint . T.pack $ "Creating target proposal branch: " <> T.unpack (Git.fromBranchName targetBranchName)
     let ontoBranchName = Proposal.proposalBranchOnto proposal
     when (targetBranchName == ontoBranchName)
