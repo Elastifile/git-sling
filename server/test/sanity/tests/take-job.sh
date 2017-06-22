@@ -20,6 +20,7 @@ is_empty() {
 }
 
 (
+    set -e
     tmp_stdout=$(mktemp)
     $sling_server take-job --match-branches 'shmaster' > $tmp_stdout
 
@@ -31,6 +32,7 @@ is_empty() {
 ! check_in_prog || fail "Expecting none in-progress"
 
 (
+    set -e
     tmp_stdout=$(mktemp)
     $sling_server take-job --match-branches 'master' > $tmp_stdout
 
@@ -49,6 +51,7 @@ is_empty() {
 check_in_prog || fail "Expecting in progress"
 
 (
+    set -e
     tmp_stdout=$(mktemp)
     $sling_server take-job --match-branches 'master' > $tmp_stdout
 
