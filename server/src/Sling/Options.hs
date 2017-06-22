@@ -17,16 +17,21 @@ import           Options.Applicative (Mod, Parser, OptionFields,
 
 data PollMode = PollModeDaemon Int | PollModeOneShot | PollModeAllQueued
 
-data PollOptions =
-    PollOptions
+data FilterOptions =
+    FilterOptions
     { optBranchFilterAll :: Maybe String
     , optBranchExcludeFilterAll :: Maybe String
     , optBranchFilterDryRun :: Maybe String
     , optBranchFilterNoDryRun :: Maybe String
     , optSourcePrefix :: Maybe Prefix
-    , optPollMode :: PollMode
     , optNoConcurrent :: Bool
     , optInProgressFromAnyServer :: Bool
+    }
+
+data PollOptions =
+    PollOptions
+    { optFilterOptions :: FilterOptions
+    , optPollMode :: PollMode
     }
 
 
@@ -47,9 +52,9 @@ data PrepushCmd = PrepushCmd [String]
 data CommandType
     = CommandTypePropose { _cmdMode :: PrepushMode
                          , _cmdPrepushCommandAnArgs :: PrepushCmd }
-    | CommandTypeList PollOptions
-    | CommandTypeRebase PollOptions
-    | CommandTypeTakeJob PollOptions
+    | CommandTypeList FilterOptions
+    | CommandTypeRebase FilterOptions
+    | CommandTypeTakeJob FilterOptions
     | CommandTypeTransition Proposal
 
 data PrepushMode
@@ -93,15 +98,15 @@ parseModeBranches =
                            (ProposalModeSingle <$> parseProposal)
                            <*> prepushCommandArgs)
                           (fullDesc <> progDesc "Process a single proposal"))
-      <> command "list" (info (CommandTypeList <$> pollOptionsParser)
+      <> command "list" (info (CommandTypeList <$> filterOptionsParser)
                          (fullDesc <> progDesc "List pending proposals"))
       <> command "poll" (info (CommandTypePropose
-                                  <$> (ProposalModePoll <$> pollOptionsParser)
+                              <$> (ProposalModePoll <$> pollOptionsParser)
                                   <*> prepushCommandArgs)
                          (fullDesc <> progDesc "Process proposals queued as branches"))
-      <> command "rebase" (info (CommandTypeRebase <$> pollOptionsParser)
+      <> command "rebase" (info (CommandTypeRebase <$> filterOptionsParser)
                            (fullDesc <> progDesc "Rebase proposals to the most recent state of the target branch"))
-      <> command "take-job" (info (CommandTypeTakeJob <$> pollOptionsParser)
+      <> command "take-job" (info (CommandTypeTakeJob <$> filterOptionsParser)
                              (fullDesc <> progDesc (
                                      "Pick a single proposal and mark it as in-progress."
                                      <> " The output format includes 3 lines: first the branch name,"
@@ -133,6 +138,23 @@ prefixOption args = prefixFromText . verify . T.pack <$> strOption args
 pollOptionsParser :: Parser PollOptions
 pollOptionsParser =
     PollOptions
+    <$> filterOptionsParser
+    <*> (PollModeDaemon <$> (option auto $
+                             short 'd' <>
+                             metavar "T" <>
+                             long "daemonize" <>
+                             help "'Daemonize' - run endlessly, polling proposals from branches every T seconds")
+         <|> (flag' PollModeOneShot
+              (long "one-shot" <>
+               help "Process one proposal and then quit; if nothing to process, quit immediately"))
+         <|> (flag PollModeAllQueued PollModeAllQueued
+              (long "all" <>
+               help "(Default) Process all pending proposals and then quit; if nothing to process, quit immediately"))
+        )
+
+filterOptionsParser :: Parser FilterOptions
+filterOptionsParser =
+    FilterOptions
     <$> optional (strOption
                   (long "match-branches" <>
                    metavar "PATTERN" <>
@@ -152,18 +174,6 @@ pollOptionsParser =
     <*> optional (prefixOption
                   (long "source-prefix" <>
                    help "Exact prefix of branches to be used for proposals (other proposals will be ignored)"))
-    <*> (PollModeDaemon <$> (option auto $
-                             short 'd' <>
-                             metavar "T" <>
-                             long "daemonize" <>
-                             help "'Daemonize' - run endlessly, polling proposals from branches every T seconds")
-         <|> (flag' PollModeOneShot
-              (long "one-shot" <>
-               help "Process one proposal and then quit; if nothing to process, quit immediately"))
-         <|> (flag PollModeAllQueued PollModeAllQueued
-              (long "all" <>
-               help "(Default) Process all pending proposals and then quit; if nothing to process, quit immediately"))
-        )
     <*> switch ( long "no-concurrent" <>
                   help "Prevent concurrent jobs: don't match any proposal, if there's an in-progress proposal matching the filter" )
     <*> switch ( long "any-host" <>

@@ -20,7 +20,7 @@ import           Sling.Lib                     (EShell, abort, Hash(..),
 import qualified Sling
 import           Sling.Options (parseOpts,
                                 OptServerId(..), PrepushCmd(..), CommandType(..),
-                                PrepushMode(..),
+                                PrepushMode(..), FilterOptions(..),
                                 Options(..), PollOptions(..), PollMode(..),)
 import           Sling.Path (encodeFP)
 import           Sling.Prepush (PrepushLogs(..))
@@ -149,14 +149,14 @@ usage = List.intercalate "\n"
     , "where COMMAND is the prepush command to run on each attempted branch."
     ]
 
-shouldConsiderProposal :: PollOptions -> Proposal -> Bool
-shouldConsiderProposal pollOptions proposal =
+shouldConsiderProposal :: FilterOptions -> Proposal -> Bool
+shouldConsiderProposal filterOptions proposal =
     (proposalStatus proposal /= ProposalRejected)
-    && (optSourcePrefix pollOptions == proposalPrefix proposal)
-    && fromMaybe True (checkFilter <$> optBranchFilterAll pollOptions)
-    && fromMaybe True (not . checkFilter <$> optBranchExcludeFilterAll pollOptions)
-    && fromMaybe True (((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun pollOptions)
-    && fromMaybe True ((proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun pollOptions)
+    && (optSourcePrefix filterOptions == proposalPrefix proposal)
+    && fromMaybe True (checkFilter <$> optBranchFilterAll filterOptions)
+    && fromMaybe True (not . checkFilter <$> optBranchExcludeFilterAll filterOptions)
+    && fromMaybe True (((not $ proposalDryRun proposal) ||) . checkFilter <$> optBranchFilterDryRun filterOptions)
+    && fromMaybe True ((proposalDryRun proposal ||) . checkFilter <$> optBranchFilterNoDryRun filterOptions)
     where checkFilter pat = (T.unpack . Git.fromBranchName $ proposalBranchOnto proposal) =~ pat
 
 handleSpecificProposal :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> Proposal -> EShell ()
@@ -179,10 +179,10 @@ parseProposals remoteBranches =
 getProposals :: EShell [(Branch, Proposal)]
 getProposals = parseProposals . map (uncurry Git.RemoteBranch) <$> Git.remoteBranches
 
-getFilteredProposals :: ServerId -> PollOptions -> EShell [(Branch, Proposal)]
-getFilteredProposals serverId pollOptions = do
+getFilteredProposals :: ServerId -> FilterOptions -> EShell [(Branch, Proposal)]
+getFilteredProposals serverId filterOptions = do
     allProposals <- getProposals
-    let filteredProposals = filter (shouldConsiderProposal pollOptions . snd) allProposals
+    let filteredProposals = filter (shouldConsiderProposal filterOptions . snd) allProposals
 
         forThisServer proposal =
             case proposalStatus proposal of
@@ -197,9 +197,9 @@ getFilteredProposals serverId pollOptions = do
                 ProposalInProgress proposalServerId -> proposalServerId /= serverId
                 ProposalRejected -> False
 
-    if optNoConcurrent pollOptions && any (isOnOtherServer . snd) filteredProposals
+    if optNoConcurrent filterOptions && any (isOnOtherServer . snd) filteredProposals
         then return []
-        else return $ if optInProgressFromAnyServer pollOptions
+        else return $ if optInProgressFromAnyServer filterOptions
                       then filteredProposals
                       else proposalsForThisServer
 
@@ -212,22 +212,23 @@ cleanupBranches = do
 
 serverPoll :: ServerId -> IORef CurrentState -> Options -> PrepushCmd -> PollOptions -> EShell Bool
 serverPoll serverId currentState options prepushCmd pollOptions = do
+    let filterOptions = optFilterOptions pollOptions
     allProposals <- getProposals
-    proposals <- getFilteredProposals serverId pollOptions
+    proposals <- getFilteredProposals serverId filterOptions
 
     eprint . T.pack $ mconcat $ List.intersperse "\n\t"
         [ "Filters: "
-        , maybe "" ("match filter: " <> ) (optBranchFilterAll pollOptions)
-        , maybe "" ("exclude filter: " <> ) (optBranchExcludeFilterAll pollOptions)
-        , maybe "" ("dry run branch filter: " <> ) (optBranchFilterDryRun pollOptions)
-        , maybe "" ("non-dry-run branch filter: " <> ) (optBranchFilterNoDryRun pollOptions)
+        , maybe "" ("match filter: " <> ) (optBranchFilterAll filterOptions)
+        , maybe "" ("exclude filter: " <> ) (optBranchExcludeFilterAll filterOptions)
+        , maybe "" ("dry run branch filter: " <> ) (optBranchFilterDryRun filterOptions)
+        , maybe "" ("non-dry-run branch filter: " <> ) (optBranchFilterNoDryRun filterOptions)
         ]
 
-    eprint . T.pack $ "Allow concurrent: " <> if optNoConcurrent pollOptions then "No" else "Yes"
+    eprint . T.pack $ "Allow concurrent: " <> if optNoConcurrent filterOptions then "No" else "Yes"
 
     eprint . T.pack $ mconcat $ List.intersperse "\n\t"
         [ "Prefixes: "
-        , "Source: " <> maybe "" (T.unpack . prefixToText) (optSourcePrefix pollOptions)
+        , "Source: " <> maybe "" (T.unpack . prefixToText) (optSourcePrefix filterOptions)
         , "Target: " <> maybe "" (T.unpack . prefixToText) (optTargetPrefix options)
         ]
 
