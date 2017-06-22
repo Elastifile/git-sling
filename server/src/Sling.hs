@@ -104,9 +104,10 @@ updateProposal' options remote (proposalBranch, proposal) =
                 remoteOntoBranch = Git.RemoteBranch remote ontoBranchName
 
             newBaseHash <- Git.refToHash $ Git.RefBranch remoteOntoBranch
+            oldBaseHash <- Git.unshortenHash origBaseHash
             newBaseShortHash <- Git.shortenHash newBaseHash
-            eprint $ "Comparing base hashes: " <> T.intercalate " " (map (T.pack . show) [newBaseShortHash, origBaseHash])
-            if newBaseShortHash == origBaseHash
+            eprint $ "Comparing base hashes: " <> T.intercalate " " (map (T.pack . show) [newBaseHash, oldBaseHash])
+            if newBaseHash == oldBaseHash
             then return $ Just (proposalBranch, proposal) -- nothing to do
             else do
                 updatedProposal <- makeUnique proposal { Proposal.proposalType = Proposal.ProposalTypeMerge mergeType newBaseShortHash }
