@@ -49,6 +49,10 @@ data Options =
 
 data PrepushCmd = PrepushCmd [String]
 
+data OptProposalParam
+    = OptProposalParamEmail String
+    | OptProposalParamQueueIndex Int
+
 data CommandType
     = CommandTypePropose { _cmdMode :: PrepushMode
                          , _cmdPrepushCommandAnArgs :: PrepushCmd }
@@ -56,6 +60,7 @@ data CommandType
     | CommandTypeRebase FilterOptions
     | CommandTypeTakeJob FilterOptions
     | CommandTypeTransition Proposal
+    | CommandTypeSetParam OptProposalParam Proposal
 
 data PrepushMode
     = ProposalModePoll PollOptions
@@ -90,6 +95,15 @@ parseProposal :: Parser Proposal
 parseProposal = parseProposalFromCmdLine <$> argument str (metavar "PROPOSAL" <>
                                                            help "A proposal branch name to handle")
 
+parseParam :: Parser OptProposalParam
+parseParam =
+    hsubparser
+    ( command "email" (info (OptProposalParamEmail <$> argument str (metavar "user@example.com"))
+                          (progDesc "Use email"))
+      <> command "queue-index" (info (OptProposalParamQueueIndex <$> argument auto (metavar "NUM"))
+                                (progDesc "Queue index"))
+    )
+
 parseModeBranches :: Parser CommandType
 parseModeBranches =
     hsubparser
@@ -114,21 +128,9 @@ parseModeBranches =
       <> command "transition" (info (CommandTypeTransition <$> parseProposal)
                                (fullDesc <> progDesc ("Given an in-progress proposal, assume it is successful"
                                                       <> " and transition it (to completion or next step)")))
+      <> command "set-param" (info (CommandTypeSetParam <$> parseParam <*> parseProposal)
+                              (fullDesc <> progDesc ("Change a parameter of a given proposal")))
     )
-    -- flag' (ProposalFromBranch Nothing)
-    --  (short 's' <>
-    --   long "single" <>
-    --   help "Process proposals from current (no polling) branches: Fetch current branches and process all existing proposals, then exit")
-    -- <|> (ProposalFromBranch <$>
-    --         optional (option auto
-    --             (short 'd' <>
-    --              metavar "T" <>
-    --              long "daemon" <>
-    --              help )))
-    -- <|> (ProposalFromCommandLine . parseProposalFromCmdLine <$>
-    --      strOption (long "proposal-branch" <>
-    --                 short 'b' <>
-    --                 help "A proposal branch name to handle"))
 
 prefixOption :: Mod OptionFields String -> Parser Prefix
 prefixOption args = prefixFromText . verify . T.pack <$> strOption args
