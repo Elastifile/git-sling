@@ -195,26 +195,29 @@ prepareMergeProposal remote proposalBranch proposal baseHash niceBranch = do
     Git.reset Git.ResetHard (Git.RefBranch proposalBranch)
     isMerge <- Git.isMergeCommit Git.RefHead
     commits <- Git.log (Git.RefHash fullBaseHash) Git.RefHead
-    let mergeFF =
-            if isMerge || (length commits == 1)
-            then Git.MergeFFOnly
-            else Git.MergeNoFF
-    -- go back to 'onto', decide whether to create a merge commit on
-    -- top (if we should merge ff only)
-    Git.checkout (Git.RefBranch $ Git.LocalBranch ontoBranchName)
-    Git.reset Git.ResetHard (Git.RefBranch $ Git.RemoteBranch remote ontoBranchName)
-    Git.merge mergeFF niceBranch
-    when (mergeFF == Git.MergeNoFF) $
-        Git.commitAmend (Proposal.proposalEmail proposal) Git.RefHead
-    newHead <- Git.currentRef
-    -- Fast-forward the work branch to match the merged 'onto' we do
-    -- this so that the prepush script will see itself running on a
-    -- branch with the name the user gave to this proposal, and not
-    -- the onto branch's name.
-    Git.checkout (Git.RefBranch niceBranch)
-    Git.merge Git.MergeFFOnly (Git.LocalBranch ontoBranchName)
-    headAfterFF <- Git.currentRef
-    assert (==) newHead headAfterFF $ Just "Expected to arrive at same commit"
+    if length commits == 0
+    then eprint "Empty proposal, nothing to do here"
+    else do
+        let mergeFF =
+                if isMerge || (length commits == 1)
+                then Git.MergeFFOnly
+                else Git.MergeNoFF
+        -- go back to 'onto', decide whether to create a merge commit on
+        -- top (if we should merge ff only)
+        Git.checkout (Git.RefBranch $ Git.LocalBranch ontoBranchName)
+        Git.reset Git.ResetHard (Git.RefBranch $ Git.RemoteBranch remote ontoBranchName)
+        Git.merge mergeFF niceBranch
+        when (mergeFF == Git.MergeNoFF) $
+            Git.commitAmend (Proposal.proposalEmail proposal) Git.RefHead
+        newHead <- Git.currentRef
+        -- Fast-forward the work branch to match the merged 'onto' we do
+        -- this so that the prepush script will see itself running on a
+        -- branch with the name the user gave to this proposal, and not
+        -- the onto branch's name.
+        Git.checkout (Git.RefBranch niceBranch)
+        Git.merge Git.MergeFFOnly (Git.LocalBranch ontoBranchName)
+        headAfterFF <- Git.currentRef
+        assert (==) newHead headAfterFF $ Just "Expected to arrive at same commit"
 
 tryTakeJob' :: Proposal.ServerId -> Options -> Git.Remote -> Git.Branch -> Proposal -> EShell (Maybe Job)
 tryTakeJob' serverId options remote proposalBranch proposal = do
@@ -287,6 +290,7 @@ transitionProposalToTarget :: Options -> Git.Remote -> Git.Ref -> Proposal -> Pr
 transitionProposalToTarget options remote newBase proposal targetPrefix prepushLogs = do
     newBaseHash <- Git.refToHash newBase
     shortBaseHash <- Git.shortenHash newBaseHash
+
     let updatedProposalType = case Proposal.proposalType proposal of
             Proposal.ProposalTypeMerge mergeType _oldBase -> Proposal.ProposalTypeMerge mergeType shortBaseHash
             Proposal.ProposalTypeRebase name              -> Proposal.ProposalTypeRebase name
@@ -328,6 +332,7 @@ transitionProposalToCompletion options finalHead proposal prepushLogs =
 
 transitionProposal :: Options -> Git.Remote -> Job -> Maybe PrepushLogs -> EShell ()
 transitionProposal options remote (Job proposal finalBase finalHead) prepushLogs = do
+    eprint $ "Transitioning: " <> (T.pack $ show proposal)
     case Proposal.proposalStatus proposal of
         Proposal.ProposalInProgress{} -> return ()
         _ -> abort $ "Must not be called on proposals unless they are in progress! Got: " <> (Proposal.formatProposal proposal)
