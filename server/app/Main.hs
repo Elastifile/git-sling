@@ -289,7 +289,7 @@ main = runEShell $ do
         CommandTypeTakeJob pollOptions -> do
             proposals <- filter (notInProgress . snd) <$> getFilteredProposals serverId pollOptions
             case proposals of
-                [topProposal] -> do
+                (topProposal:_) -> do
                     mjob <- tryTakeJob serverId options topProposal
                     case mjob of
                         Nothing -> return ()
