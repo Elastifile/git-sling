@@ -291,19 +291,16 @@ main = runEShell $ do
                 [topProposal] -> do
                     mjob <- tryTakeJob serverId options topProposal
                     case mjob of
-                        Nothing -> liftIO $ putStrLn "<<< no job taken"
+                        Nothing -> return ()
                         Just (Sling.Job proposal baseRef headRef) -> do
                             baseHash <- Git.refToHash baseRef
                             headHash <- Git.refToHash headRef
-                            liftIO $ putStrLn $ mconcat
-                                [ ">>> "
-                                , "base:" <> (T.unpack $ fromHash baseHash)
-                                , " "
-                                , "head:" <> (T.unpack $ fromHash headHash)
-                                , " "
-                                , "branch:" <> T.unpack (Proposal.formatProposal proposal)
+                            liftIO $ mapM_ putStrLn $
+                                [ T.unpack (Proposal.formatProposal proposal)
+                                , T.unpack $ fromHash baseHash
+                                , T.unpack $ fromHash headHash
                                 ]
-                _ -> liftIO $ putStrLn "<<< no job taken"
+                _ -> return ()
         CommandTypeTransition proposal -> do
             case Proposal.proposalType proposal of
                 Proposal.ProposalTypeRebase{} -> abort "Can't transition a rebase proposal"

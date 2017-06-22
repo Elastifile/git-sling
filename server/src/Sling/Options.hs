@@ -102,9 +102,13 @@ parseModeBranches =
       <> command "rebase" (info (CommandTypeRebase <$> pollOptionsParser)
                            (fullDesc <> progDesc "Rebase proposals to the most recent state of the target branch"))
       <> command "take-job" (info (CommandTypeTakeJob <$> pollOptionsParser)
-                             (fullDesc <> progDesc "Pick a single proposal and mark it as in-progress"))
+                             (fullDesc <> progDesc (
+                                     "Pick a single proposal and mark it as in-progress."
+                                     <> " The output format includes 3 lines: first the branch name,"
+                                     <> " then the base commit hash, then the head commit hash.")))
       <> command "transition" (info (CommandTypeTransition <$> parseProposal)
-                               (fullDesc <> progDesc "Assume an in-progress proposal is successful, and transition it (to completion or next step)"))
+                               (fullDesc <> progDesc ("Given an in-progress proposal, assume it is successful"
+                                                      <> " and transition it (to completion or next step)")))
     )
     -- flag' (ProposalFromBranch Nothing)
     --  (short 's' <>
