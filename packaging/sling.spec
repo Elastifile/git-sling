@@ -15,6 +15,7 @@ BuildRequires:  zlib-devel
 BuildRequires:  gmp-devel
 BuildRequires:  python
 BuildRequires:  chrpath
+BuildRequires:  git >= 2.7
 
 %if 0%{?fedora} >= 24
 # GHC builds need tinfo.so.5
@@ -23,6 +24,7 @@ BuildRequires:  glibc-langpack-en
 %endif
 
 Requires:       gmp
+Requires:       git >= 2.7
 
 %description
 Sling is a lightweight continuous integration tool for git
@@ -52,6 +54,9 @@ export PATH=~/.local/bin:$PATH
 
 cd server
 stack --no-terminal build
+
+cd test/sanity
+./test.sh
 
 %install
 
