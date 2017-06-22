@@ -50,6 +50,11 @@ makeUnique proposal = do
         return $ go (1 :: Int)
         else return proposal
 
+rejectProposalAndAbort :: Options -> Git.Remote -> Proposal -> Text -> Maybe PrepushLogs -> Maybe (Text, ExitCode) -> EShell ()
+rejectProposalAndAbort options remote proposal reason prepushLogs err = do
+    rejectProposal options remote proposal reason prepushLogs err
+    abort "Rejected"
+
 rejectProposal :: Options -> Git.Remote -> Proposal -> Text -> Maybe PrepushLogs -> Maybe (Text, ExitCode) -> EShell ()
 rejectProposal options remote proposal reason prepushLogs err = do
     let origBranchName = Proposal.toBranchName proposal
@@ -71,7 +76,6 @@ rejectProposal options remote proposal reason prepushLogs err = do
     Git.checkout (Git.RefBranch $ Git.LocalBranch rejectBranchName)
     Git.deleteBranch (Git.LocalBranch origBranchName) & ignoreError
     Git.deleteBranch (Git.RemoteBranch remote origBranchName)
-    abort "Rejected"
 
 -- Checks that the proposal is valid (e.g. the onto branch still actually exists on the remote)
 verifyProposal :: Options -> Git.Remote -> Proposal -> EShell ()
@@ -79,7 +83,7 @@ verifyProposal options remote proposal = do
     let ontoBranchName = Proposal.proposalBranchOnto proposal
     remoteBranches <- Git.remoteBranches
     unless ((remote, ontoBranchName) `elem` remoteBranches)
-        $ Sling.rejectProposal options remote proposal ("Remote branch doesn't exist: " <> Git.fromBranchName ontoBranchName) Nothing Nothing
+        $ rejectProposalAndAbort options remote proposal ("Remote branch doesn't exist: " <> Git.fromBranchName ontoBranchName) Nothing Nothing
     -- TODO: Add check that base hash (for merge proposals) is in range of commits that makes sense
 
 -- Rebases given proposal over latest known state of its target branch
@@ -116,7 +120,7 @@ updateProposal' options remote (proposalBranch, proposal) =
                 Git.rebase Git.Rebase { Git.rebaseBase = Git.RefHash origBaseHash
                                       , Git.rebaseOnto = Git.RefBranch remoteOntoBranch
                                       , Git.rebasePolicy = rebasePolicy }
-                    `catchError` (rejectProposal options remote proposal "Rebase failed" Nothing . Just)
+                    `catchError` (rejectProposalAndAbort options remote proposal "Rebase failed" Nothing . Just)
 
                 -- create updated proposal branch
                 Git.deleteLocalBranch updatedProposalBranchName & ignoreError
@@ -251,7 +255,7 @@ tryTakeJob' serverId options remote proposalBranch proposal = do
                                         Git.rebaseOnto = remoteOnto,
                                         Git.rebasePolicy = Git.RebaseKeepMerges
                                       }
-                    `catchError` (Sling.rejectProposal options remote proposal "Rebase failed" Nothing . Just)
+                    `catchError` (rejectProposalAndAbort options remote proposal "Rebase failed" Nothing . Just)
                 -- rebase succeeded, we can now take this job
 
         finalHead <- Git.currentRef
@@ -366,6 +370,6 @@ runPrepush' (PrepushLogs logDir logFile) (Options.PrepushCmd cmd) baseR headR = 
 runPrepush :: Options -> Git.Remote -> Options.PrepushCmd -> PrepushLogs -> Sling.Job -> EShell ()
 runPrepush options remote prepushCmd prepushLogs (Sling.Job proposal finalBase finalHead) = do
     runPrepush' prepushLogs prepushCmd finalBase finalHead
-        `catchError` (Sling.rejectProposal options remote proposal "Prepush command failed" (Just prepushLogs) . Just)
+        `catchError` (rejectProposalAndAbort options remote proposal "Prepush command failed" (Just prepushLogs) . Just)
     -- TODO ensure not dirty
     eprint "Prepush command ran succesfully"

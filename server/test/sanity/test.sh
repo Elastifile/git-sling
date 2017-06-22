@@ -96,6 +96,7 @@ exec_test() {
 
 exec_test "tests/basic.sh"
 exec_test "tests/duplicate-propose.sh"
+exec_test "tests/reject.sh"
 exec_test "tests/take-job.sh"
 exec_test "tests/rebase.sh"
 exec_test "tests/onto.sh"

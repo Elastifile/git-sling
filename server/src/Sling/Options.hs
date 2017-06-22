@@ -56,6 +56,7 @@ data CommandType
     | CommandTypeRebase FilterOptions
     | CommandTypeTakeJob FilterOptions
     | CommandTypeTransition Proposal
+    | CommandTypeReject Proposal Text
 
 data PrepushMode
     = ProposalModePoll PollOptions
@@ -114,21 +115,11 @@ parseModeBranches =
       <> command "transition" (info (CommandTypeTransition <$> parseProposal)
                                (fullDesc <> progDesc ("Given an in-progress proposal, assume it is successful"
                                                       <> " and transition it (to completion or next step)")))
+      <> command "reject" (info (CommandTypeReject
+                                    <$> parseProposal
+                                    <*> (T.pack <$> argument str (metavar "REASON")))
+                              (fullDesc <> progDesc ("Given an in-progress proposal, rejects it")))
     )
-    -- flag' (ProposalFromBranch Nothing)
-    --  (short 's' <>
-    --   long "single" <>
-    --   help "Process proposals from current (no polling) branches: Fetch current branches and process all existing proposals, then exit")
-    -- <|> (ProposalFromBranch <$>
-    --         optional (option auto
-    --             (short 'd' <>
-    --              metavar "T" <>
-    --              long "daemon" <>
-    --              help )))
-    -- <|> (ProposalFromCommandLine . parseProposalFromCmdLine <$>
-    --      strOption (long "proposal-branch" <>
-    --                 short 'b' <>
-    --                 help "A proposal branch name to handle"))
 
 prefixOption :: Mod OptionFields String -> Parser Prefix
 prefixOption args = prefixFromText . verify . T.pack <$> strOption args

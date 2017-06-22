@@ -308,4 +308,5 @@ main = runEShell $ do
                 Proposal.ProposalTypeMerge _mergeType baseHash -> do
                     headRef <- Git.RefHash <$> Git.refToHash (Git.RefBranch $ Git.RemoteBranch origin (Proposal.toBranchName proposal))
                     Sling.transitionProposal options origin (Sling.Job proposal (Git.RefHash baseHash) headRef) Nothing
-
+        CommandTypeReject proposal reason -> do
+            Sling.rejectProposal options origin proposal reason Nothing Nothing
