@@ -300,6 +300,7 @@ main = runEShell $ do
                                 [ T.unpack (Proposal.formatProposal proposal)
                                 , T.unpack $ fromHash baseHash
                                 , T.unpack $ fromHash headHash
+                                , T.unpack $ formatEmail $ Proposal.proposalEmail proposal
                                 ]
                 _ -> return ()
         CommandTypeTransition proposal -> do
