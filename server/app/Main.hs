@@ -184,20 +184,20 @@ getFilteredProposals serverId filterOptions = do
     allProposals <- getProposals
     let filteredProposals = filter (shouldConsiderProposal filterOptions . snd) allProposals
 
+        isInProgress proposal =
+            case proposalStatus proposal of
+                ProposalInProgress{} -> True
+                _ -> False
+
         forThisServer proposal =
             case proposalStatus proposal of
                 ProposalProposed{} -> True
                 ProposalInProgress proposalServerId -> proposalServerId == serverId
                 ProposalRejected -> False
+
         proposalsForThisServer = filter (forThisServer . snd) filteredProposals
 
-        isOnOtherServer proposal =
-            case proposalStatus proposal of
-                ProposalProposed{} -> False
-                ProposalInProgress proposalServerId -> proposalServerId /= serverId
-                ProposalRejected -> False
-
-    if optNoConcurrent filterOptions && any (isOnOtherServer . snd) filteredProposals
+    if optNoConcurrent filterOptions && any (isInProgress . snd) filteredProposals
         then return []
         else return $ if optInProgressFromAnyServer filterOptions
                       then filteredProposals
