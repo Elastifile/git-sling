@@ -315,8 +315,8 @@ transitionProposalToTarget options remote newBase proposal targetPrefix prepushL
     Git.deleteLocalBranch targetBranchName
     sendProposalEmail options proposal ("Ran successfully, moved to: " <> Proposal.prefixToText targetPrefix) "" prepushLogs ProposalSuccessEmail
 
-transitionProposalToCompletion :: Options -> Git.Ref -> Proposal -> Maybe PrepushLogs -> EShell ()
-transitionProposalToCompletion options finalHead proposal prepushLogs =
+transitionProposalToCompletion :: Options -> Git.Remote -> Git.Ref -> Proposal -> Maybe PrepushLogs -> EShell ()
+transitionProposalToCompletion options remote finalHead proposal prepushLogs =
     if isDryRun options proposal
     then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" prepushLogs ProposalSuccessEmail
     else do
@@ -325,6 +325,10 @@ transitionProposalToCompletion options finalHead proposal prepushLogs =
                 let ontoBranchName = Proposal.proposalBranchOnto proposal
                 eprint $ "Updating: " <> Git.fromBranchName ontoBranchName
                 Git.checkout (Git.RefBranch $ Git.LocalBranch ontoBranchName)
+                Git.reset Git.ResetHard (Git.RefBranch $ Git.RemoteBranch remote $ Proposal.toBranchName proposal)
+                 -- should succeed without force, because the reset
+                 -- hard above should bring it to the proposal rebased
+                 -- over latest version of onto
                 Git.push
             Proposal.ProposalTypeRebase name  -> do
                 eprint $ "Updating: " <> Git.fromBranchName name
@@ -344,7 +348,7 @@ transitionProposal options remote (Job proposal finalBase finalHead) prepushLogs
 
 
     case Options.optTargetPrefix options of
-        Nothing -> transitionProposalToCompletion options finalHead proposal prepushLogs
+        Nothing -> transitionProposalToCompletion options remote finalHead proposal prepushLogs
         Just targetPrefix -> transitionProposalToTarget options remote finalBase proposal targetPrefix prepushLogs
 
     -- Cleanup

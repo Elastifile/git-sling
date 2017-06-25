@@ -81,6 +81,11 @@ logit rebase
 # ----------------------------------------------------------------------
 cd_server
 
+# Make sure 'transition' starts on a clean slate, doesn't depend on
+# state of master branch in this repo
+logit checkout master
+logit reset --hard origin/master
+
 in_progress_proposal=$(check_in_prog | sed -r 's, *origin/,,g')
 run_cmd $sling_server transition $in_progress_proposal || fail "Expecting success"
 
