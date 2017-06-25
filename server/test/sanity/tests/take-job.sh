@@ -22,6 +22,8 @@ is_empty() {
 (
     set -e
     tmp_stdout=$(mktemp)
+    echo "......................................................................"
+    echo "Running take-job ${LINENO}:"
     $sling_server take-job --match-branches 'shmaster' > $tmp_stdout
 
     is_empty $tmp_stdout || fail "Expecting no job, got: $tmp_stdout"
@@ -34,6 +36,8 @@ is_empty() {
 (
     set -e
     tmp_stdout=$(mktemp)
+    echo "......................................................................"
+    echo "Running take-job ${LINENO}:"
     $sling_server take-job --match-branches 'master' > $tmp_stdout
 
     [[ $(cat $tmp_stdout | wc -l) -eq 3 ]] || fail "Expecting yes a job, got: $tmp_stdout"
@@ -53,7 +57,9 @@ check_in_prog || fail "Expecting in progress"
 (
     set -e
     tmp_stdout=$(mktemp)
-    $sling_server take-job --match-branches 'master' > $tmp_stdout
+    echo "......................................................................"
+    echo "Running take-job ${LINENO}:"
+    $sling_server take-job --no-concurrent --match-branches 'master' > $tmp_stdout
 
     is_empty $tmp_stdout || fail "Expecting no job, got: $tmp_stdout"
     rm $tmp_stdout

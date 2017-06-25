@@ -284,10 +284,10 @@ main = runEShell $ do
             forM_ proposals $ \(branch, proposal) ->
                 liftIO $ putStrLn $ T.unpack $ (Git.fromBranchName (Git.branchName branch) <> " " <> formatEmail (proposalEmail proposal))
         CommandTypeRebase pollOptions -> do
-            proposals <- filter (notInProgress . snd) <$> getFilteredProposals serverId pollOptions
+            proposals <- getFilteredProposals serverId pollOptions
             forM_ proposals $ Sling.updateProposal options origin
         CommandTypeTakeJob pollOptions -> do
-            proposals <- filter (notInProgress . snd) <$> getFilteredProposals serverId pollOptions
+            proposals <- getFilteredProposals serverId pollOptions
             case proposals of
                 (topProposal:_) -> do
                     mjob <- tryTakeJob serverId options topProposal
