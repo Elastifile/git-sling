@@ -321,9 +321,10 @@ transitionProposalToCompletion options remote finalHead proposal prepushLogs =
     then sendProposalEmail options proposal "Dry-run: Prepush ran successfully" "" prepushLogs ProposalSuccessEmail
     else do
         case Proposal.proposalType proposal of
-            Proposal.ProposalTypeMerge _mergeType _baseRef -> do
+            Proposal.ProposalTypeMerge _mergeType _baseRef -> Git.withTempLocalBranch $ \_tempBranchName -> do
                 let ontoBranchName = Proposal.proposalBranchOnto proposal
                 eprint $ "Updating: " <> Git.fromBranchName ontoBranchName
+                Git.deleteLocalBranch ontoBranchName -- ensures the checkout below will set it up to track remote
                 Git.checkout (Git.RefBranch $ Git.LocalBranch ontoBranchName)
                 Git.reset Git.ResetHard (Git.RefBranch $ Git.RemoteBranch remote $ Proposal.toBranchName proposal)
                  -- should succeed without force, because the reset
