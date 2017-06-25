@@ -18,7 +18,7 @@ import           Turtle ((&), ExitCode)
 
 import qualified Sling.Git as Git
 import           Sling.Email (sendProposalEmail, formatCommitsForEmail, EmailType(..))
-import           Sling.Lib (EShell, Hash(..), ignoreError, assert, eprint, abort, eproc)
+import           Sling.Lib (EShell, Hash(..), ignoreError, assert, eprint, abort, eproc, NonEmptyText(..))
 import           Sling.Options (Options, isDryRun)
 import qualified Sling.Options as Options
 import           Sling.Path (encodeFP)
@@ -285,7 +285,10 @@ tryTakeJob' serverId options remote proposalBranch proposal = do
                     let title = if isDryRun options proposal
                                 then "Running dry run"
                                 else "Attempting to merge"
-                    sendProposalEmail options proposal title commitLogHtml Nothing ProposalAttemptEmail
+                        prefix = case Proposal.proposalPrefix proposal of
+                            Nothing -> ""
+                            Just s -> " (" <> fromNonEmptyText (Proposal.fromPrefix s) <> ")"
+                    sendProposalEmail options proposal (title <> prefix) commitLogHtml Nothing ProposalAttemptEmail
                     return . Just $ Job inProgressProposal finalBase finalHead
                 else return Nothing
 

@@ -35,7 +35,7 @@ import           Sling.Lib                     (EShell, Email (..), fromHash, Na
 import           Sling.Path (encodeFP)
 import           Sling.Prepush (PrepushLogs(..))
 import           Sling.Options (Options(..), isDryRun)
-import           Sling.Proposal (Proposal(..), formatProposal)
+import           Sling.Proposal (Proposal(..))
 import           Filesystem.Path.CurrentOS (FilePath)
 
 import           Prelude hiding (FilePath)
