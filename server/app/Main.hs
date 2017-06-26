@@ -301,6 +301,7 @@ main = runEShell $ do
                                 , T.unpack $ fromHash baseHash
                                 , T.unpack $ fromHash headHash
                                 , T.unpack $ formatEmail $ Proposal.proposalEmail proposal
+                                , T.unpack $ Git.fromBranchName $ Proposal.proposalBranchOnto proposal
                                 ]
                 _ -> return ()
         CommandTypeTransition proposal -> do

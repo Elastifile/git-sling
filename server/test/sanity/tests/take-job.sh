@@ -42,16 +42,18 @@ is_empty() {
     echo "Running take-job ${LINENO}:"
     $sling_server take-job --match-branches 'master' > $tmp_stdout
 
-    [[ $(cat $tmp_stdout | wc -l) -eq 4 ]] || fail "Expecting yes a job, got: $tmp_stdout"
+    [[ $(cat $tmp_stdout | wc -l) -eq 5 ]] || fail "Expecting yes a job, got: $tmp_stdout"
     branch_name=$(sed -n 1p $tmp_stdout)
     base_commit=$(sed -n 2p $tmp_stdout)
     head_commit=$(sed -n 3p $tmp_stdout)
     user_email=$(sed -n 4p $tmp_stdout)
+    onto_branch_name=$(sed -n 5p $tmp_stdout)
 
     echo $branch_name | grep '/in-progress/.*take_my_job' || fail "Expected to take our job, took something else: $tmp_stdout"
     [[ "$base_commit" == "$master_hash" ]] || fail "Base didn't match master"
     [[ "$head_commit" == "$(git rev-parse origin/$branch_name)" ]] || fail "Head hash is wrong"
     [[ "$user_email" == "$client_user_email" ]] || fail "email is wrong"
+    [[ "$onto_branch_name" == "master" ]] || fail "onto branch name is wrong"
     rm $tmp_stdout
 )
 
