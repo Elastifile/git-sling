@@ -327,7 +327,7 @@ transitionProposalToCompletion options remote finalHead proposal prepushLogs =
             Proposal.ProposalTypeMerge _mergeType _baseRef -> Git.withTempLocalBranch $ \_tempBranchName -> do
                 let ontoBranchName = Proposal.proposalBranchOnto proposal
                 eprint $ "Updating: " <> Git.fromBranchName ontoBranchName
-                Git.deleteLocalBranch ontoBranchName -- ensures the checkout below will set it up to track remote
+                Git.deleteLocalBranch ontoBranchName & ignoreError -- ensures the checkout below will set it up to track remote
                 Git.checkout (Git.RefBranch $ Git.LocalBranch ontoBranchName)
                 Git.reset Git.ResetHard (Git.RefBranch $ Git.RemoteBranch remote $ Proposal.toBranchName proposal)
                  -- should succeed without force, because the reset
