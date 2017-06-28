@@ -126,7 +126,14 @@ class CmdLineOption c where
     optionToText :: c -> Text
 
 fetch :: EShell ()
-fetch = git ["fetch", "-p"] >> pure ()
+fetch = git ["fetch", "-p", "--all"] >> pure ()
+
+configRemoteFetch :: Remote -> EShell ()
+configRemoteFetch r = git ["config",
+                           "remote." <> remoteText <> ".fetch",
+                           "+refs/heads/*:refs/remotes/" <> remoteText <> "/*"]
+                      >> pure ()
+    where remoteText = fromNonEmptyText (remoteName r)
 
 remote :: EShell [Remote]
 remote = map (Remote . nonEmptyText) <$> git ["remote"]

@@ -275,7 +275,9 @@ main = runEShell $ do
             OptServerIdHostName -> T.pack hostName
             OptServerIdName serverIdName -> serverIdName
 
+    Git.configRemoteFetch origin
     Git.fetch
+
     case optCommandType options of
         CommandTypePropose (ProposalModePoll pollOptions) prepushCmd -> serverLoop serverId currentState options prepushCmd pollOptions
         CommandTypePropose (ProposalModeSingle proposal) prepushCmd -> handleSpecificProposal serverId currentState options prepushCmd proposal

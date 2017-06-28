@@ -10,6 +10,9 @@ yes | run_cmd $sling_propose master
 
 cd_server
 
+# Mis-configure git fetch on purpose (sling is supposed to repair it)
+git config --unset remote.origin.fetch
+
 echo "Expecting success..."
 run_cmd $sling_server poll -- $prepush || fail "ERROR: Server should succeed!"
 
