@@ -99,7 +99,7 @@ updateProposal' options remote (proposalBranch, proposal) =
     case Proposal.proposalType proposal of
         Proposal.ProposalTypeRebase{} -> return $ Just (proposalBranch, proposal) -- nothing to update
         Proposal.ProposalTypeMerge mergeType origBaseHash -> Git.withTempLocalBranch $ \tempBranchName -> do
-            let proposalBranchName = Proposal.toBranchName proposal
+            let proposalBranchName = Git.branchName proposalBranch
                 ontoBranchName = Proposal.proposalBranchOnto proposal
                 remoteOntoBranch = Git.RemoteBranch remote ontoBranchName
 
