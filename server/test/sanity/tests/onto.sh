@@ -10,7 +10,26 @@ logit reset --hard origin/integration/base
 
 add_commit_file integration_test
 
-yes | run_cmd $sling_propose integration/base
+# This should do nothing:
+! ( echo n | run_cmd $sling_propose integration/base ) || fail "Should exit with failure when given 'no'"
+
+! ( git branch -r | grep 'sling/.*integration_test' ) || fail "Branch should not be proposed yet"
+
+echo "----------------------------------------------------------------------"
+
+cd_server
+
+echo "Expecting success..."
+run_cmd $sling_server poll -- $prepush || fail "ERROR: Server should succeed!"
+
+cd_client
+
+logit fetch -p
+
+! ( git log --format="%H %s" origin/integration/base | grep "integration_test" ) || fail "Expected integration branch to not include the new commit"
+
+# Check also the -y flag to propose:
+run_cmd $sling_propose -y integration/base
 
 echo "----------------------------------------------------------------------"
 

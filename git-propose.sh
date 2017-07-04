@@ -38,13 +38,14 @@ check_for_upgrade() {
 
 show_usage() {
     echo | cat <<EOF
-Usage: git propose <target branch> [--rebase] [--dry-run] [--no-upgrade-check] [--vip] [--source=SOURCE_PREFIX]
+Usage: git propose <target branch> [-y] [--rebase] [--dry-run] [--no-upgrade-check] [--vip] [--source=SOURCE_PREFIX]
 
  --rebase             Propose to just rebase the current branch instead of merging it into the target branch
  --dry-run            Don't actually merge the changes; just check that rebase + prepush passes.
  --no-flatten         Don't flatten merge commits
  --(no-)upgrade-check Enable/disable automatic checking for a new version of git-sling
  --vip                Give this proposal a higher priority than normal (use with discretion).
+ -y                   Assume 'yes' on all questions (non-interactive)
 
 Pipeline options:
  --source=SOURCE_PREFIX
@@ -82,14 +83,19 @@ abort_not_rebased() {
 }
 
 prompt() {
-    echo -n "$1 (y/n): "
-    read answer
-    if echo "$answer" | grep -iq "^y" ;
+    if $ASSUME_YES;
     then
-        echo ""
+        echo "(Assuming yes)"
     else
-        echo "Aborted"
-        exit 1
+        echo -n "$1 (y/n): "
+        read answer
+        if echo "$answer" | grep -iq "^y" ;
+        then
+            echo ""
+        else
+            echo "Aborted"
+            exit 1
+        fi
     fi
 }
 
@@ -109,6 +115,7 @@ IS_VIP=false
 SOURCE_PREFIX=""
 MOVE_BRANCH_MODE="base"
 FLATTEN=true
+ASSUME_YES=false
 for arg in "$@"; do
     case $arg in
         --rebase)
@@ -135,6 +142,9 @@ for arg in "$@"; do
             validate_prefix "$RAW_SOURCE_PREFIX"
             SOURCE_PREFIX="prefix-$RAW_SOURCE_PREFIX/"
             shift
+            ;;
+        -y)
+            ASSUME_YES=true
             ;;
         -*)
             show_usage
