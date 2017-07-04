@@ -12,7 +12,8 @@ set -eu
 #
 SCRIPT_DIR=$(dirname $(realpath $BASH_SOURCE))
 
-( source $SCRIPT_DIR/sling-config.sh &> /dev/null ) || source $SCRIPT_DIR/sling-config.sh.example
+SLING_PREFIX="sling"
+PROPOSED_PREFIX="proposed"
 
 in_sling_dir() {
     (

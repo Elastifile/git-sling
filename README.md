@@ -54,11 +54,6 @@ Then for usage, run:
 
 The install script sets up a cron job, but you may want to use  initd/systemd/upstart service: setup contributions welcome!
 
-## Configuration
-
-Edit the file `sling-config.sh` to configure.
-
-
 # Contributors
 
 Author: Noam Lewis ([@sinelaw](https://github.com/sinelaw))
