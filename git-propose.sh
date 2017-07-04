@@ -158,6 +158,12 @@ for arg in "$@"; do
     esac
 done
 
+if [ $(uname) == "Darwin" ]; then
+    SED=gsed
+else
+    SED=sed
+fi
+
 if [ -z "$ONTO_BRANCH" ]; then
     show_usage
     echo
@@ -190,7 +196,7 @@ else
     INDEX=$(git branch -r | \
                    (grep -E "$PROPOSED_PREFIX/[0-9]+" \
                            || echo 0) | \
-                   ${SCRIPT_DIR}/sed.sh -r "s,.*$PROPOSED_PREFIX/([0-9]+).*,\1,g" | \
+                   ${SED} -r "s,.*$PROPOSED_PREFIX/([0-9]+).*,\1,g" | \
                    sort -g | \
                    tail -1)
     NEXT_INDEX=$((INDEX + 1))
@@ -199,7 +205,7 @@ git config user.email | grep "\-at\-" && \
     ( echo "your email contains '-at-' /";
       echo " we don't support    that!";
       exit 1)
-EMAIL=$(git config user.email | ${SCRIPT_DIR}/sed.sh -s 's/@/-at-/g')
+EMAIL=$(git config user.email | ${SED} -s 's/@/-at-/g')
 
 escape_branch() {
     local escape_char=","
