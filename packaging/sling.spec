@@ -64,6 +64,7 @@ cp server/LICENSE $RPM_BUILD_ROOT/%{_prefix}/share/doc/sling-0.1.0.0/LICENSE.txt
 mkdir -p $RPM_BUILD_ROOT/%{_prefix}/bin
 sling_exe=$RPM_BUILD_ROOT/%{_prefix}/bin/sling
 cp server/.stack-work/install/*/*/*/bin/sling ${sling_exe}
+cp git-propose.sh $RPM_BUILD_ROOT/%{_prefix}/bin
 
 chmod a+x ${sling_exe}
 
@@ -72,6 +73,7 @@ chrpath -d ${sling_exe}
 
 %files
 %{_prefix}/bin/sling
+%{_prefix}/bin/git-propose.sh
 # FIXME: Version needs to be automated here.
 %{_prefix}/share/doc/sling-0.1.0.0/LICENSE.txt
 
