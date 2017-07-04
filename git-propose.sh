@@ -39,7 +39,7 @@ check_for_upgrade() {
 
 show_usage() {
     echo | cat <<EOF
-Usage: git propose <target branch> [-y] [--rebase] [--dry-run] [--no-upgrade-check] [--vip] [--source=SOURCE_PREFIX]
+Usage: git propose <target branch> [[--ticket=TICKET]] [-y] [--rebase] [--dry-run] [--no-upgrade-check] [--vip] [--source=SOURCE_PREFIX]
 
  --rebase             Propose to just rebase the current branch instead of merging it into the target branch
  --dry-run            Don't actually merge the changes; just check that rebase + prepush passes.
@@ -47,6 +47,10 @@ Usage: git propose <target branch> [-y] [--rebase] [--dry-run] [--no-upgrade-che
  --(no-)upgrade-check Enable/disable automatic checking for a new version of git-sling
  --vip                Give this proposal a higher priority than normal (use with discretion).
  -y                   Assume 'yes' on all questions (non-interactive)
+
+ --ticket=TICKET      Include the string TICKET in the branch names.
+                      May be given multiple times, all given strings will be included in the branch name.
+                      (For use with post-merge tools, e.g. bug trackers)
 
 Pipeline options:
  --source=SOURCE_PREFIX
@@ -60,6 +64,8 @@ Or to just check if your branch can rebase & build over 'my_integration', use:
 > git propose my_integration --dry-run
 
 (Note, you shouldn't add the 'origin/' prefix.)
+
+> git propose master --ticket=EL-1234 --ticket=EL-987
 
 EOF
 }
@@ -117,6 +123,7 @@ SOURCE_PREFIX=""
 MOVE_BRANCH_MODE="base"
 FLATTEN=true
 ASSUME_YES=false
+TICKETS=""
 for arg in "$@"; do
     case $arg in
         --rebase)
@@ -142,6 +149,10 @@ for arg in "$@"; do
             RAW_SOURCE_PREFIX="${arg#*=}"
             validate_prefix "$RAW_SOURCE_PREFIX"
             SOURCE_PREFIX="prefix-$RAW_SOURCE_PREFIX/"
+            shift
+            ;;
+        --ticket=*)
+            TICKETS="${TICKETS} ${arg#*=}"
             shift
             ;;
         -y)
@@ -185,6 +196,9 @@ git branch -r | grep $ONTO_BRANCH > /dev/null || abort_bad_name
 
 git describe --dirty --all | grep -E ".*-dirty$"  > /dev/null && abort_unclean
 PROPOSED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [ "${TICKETS}" != "" ]; then
+    PROPOSED_BRANCH="${PROPOSED_BRANCH}_$(echo ${TICKETS} | tr ' ' '_')"
+fi
 BASE_COMMIT="$(git log -1 origin/$ONTO_BRANCH --format=%h)"
 
 # The index here gives an approximate ordering (because it isn't
@@ -240,6 +254,10 @@ if [ $COMMIT_COUNT = "0" ] ; then
     echo
     echo "WARNING: No commits to send! Aborting."
     exit 1
+elif [ $COMMIT_COUNT = "1" ] ; then
+    if [ "${TICKETS}" != "" ]; then
+        git commit --amend -m "$(git log -1 --format='%B') - ${TICKETS}"
+    fi
 fi
 
 echo "Proposing: $PROPOSED_BRANCH"
