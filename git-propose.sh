@@ -47,6 +47,7 @@ Usage: git propose <target branch> [[--ticket=TICKET]] [-y] [--rebase] [--dry-ru
  --(no-)upgrade-check Enable/disable automatic checking for a new version of git-sling
  --vip                Give this proposal a higher priority than normal (use with discretion).
  -y                   Assume 'yes' on all questions (non-interactive)
+ --email=EMAIL        Use given email address instead of current git user.email
 
  --ticket=TICKET      Include the string TICKET in the branch names.
                       May be given multiple times, all given strings will be included in the branch name.
@@ -123,6 +124,7 @@ SOURCE_PREFIX=""
 MOVE_BRANCH_MODE="base"
 FLATTEN=true
 ASSUME_YES=false
+USE_GIT_EMAIL=true
 TICKETS=""
 for arg in "$@"; do
     case $arg in
@@ -157,6 +159,11 @@ for arg in "$@"; do
             ;;
         -y)
             ASSUME_YES=true
+            ;;
+        --email=*)
+            EMAIL="${arg#*=}"
+            shift
+            USE_GIT_EMAIL=false
             ;;
         -*)
             show_usage
@@ -215,11 +222,25 @@ else
                    tail -1)
     NEXT_INDEX=$((INDEX + 1))
 fi
-git config user.email | grep "\-at\-" && \
-    ( echo "your email contains '-at-' /";
-      echo " we don't support    that!";
-      exit 1)
-EMAIL=$(git config user.email | ${SED} -s 's/@/-at-/g')
+
+verify_email() {
+    if ( echo "$1" | grep "\-at\-" );
+    then
+        echo "your email ($1) contains '-at-' /"
+        echo " we don't support that!"
+        exit 1
+    fi
+}
+
+if $USE_GIT_EMAIL; then
+    EMAIL=$(git config user.email)
+fi
+if [ $EMAIL == "" ]; then
+    echo "Email cannot be empty"
+    exit 1
+fi
+verify_email "$EMAIL"
+ESCAPED_EMAIL=$(echo "$EMAIL" | ${SED} -s 's/@/-at-/g')
 
 escape_branch() {
     local escape_char=","
@@ -246,7 +267,7 @@ else
     MERGE_TYPE="-keep"
 fi
 
-REMOTE_BRANCH="${SLING_PREFIX}/${SOURCE_PREFIX}${PROPOSED_PREFIX}/$NEXT_INDEX/$(escape_branch $PROPOSED_BRANCH)/$MOVE_BRANCH_MODE$MERGE_TYPE/$MOVE_BRANCH_PARAM/$ONTO_PREFIX/$(escape_branch $ONTO_BRANCH)/user/$EMAIL"
+REMOTE_BRANCH="${SLING_PREFIX}/${SOURCE_PREFIX}${PROPOSED_PREFIX}/$NEXT_INDEX/$(escape_branch $PROPOSED_BRANCH)/$MOVE_BRANCH_MODE$MERGE_TYPE/$MOVE_BRANCH_PARAM/$ONTO_PREFIX/$(escape_branch $ONTO_BRANCH)/user/$ESCAPED_EMAIL"
 
 COMMIT_COUNT=$(git log --oneline $BASE_COMMIT..HEAD | wc -l)
 
@@ -279,6 +300,6 @@ git push origin "HEAD:$REMOTE_BRANCH"
 echo
 echo "Pushed to: $REMOTE_BRANCH"
 echo
-echo "Proposal added to work queue. You will receive an email when the server starts working on it. If the server is busy, this may take some time."
+echo "Proposal added to work queue. An email will be sent to $EMAIL when the server starts working on it. If the server is busy, this may take some time."
 echo
-echo "To unpropose, use: git unpropose $PROPOSED_BRANCH"
+echo "To unpropose, use: git push --delete origin $REMOTE_BRANCH"
