@@ -31,10 +31,11 @@ logit fetch -p
 
 logit checkout master
 
+old_master=$(git rev-parse HEAD)
 logit rebase
 
-git log -2 --format="%s" --reverse | head -1 | grep 'AB-123' || fail "Didn't find both ticket strings"
-git log -2 --format="%s" --reverse | head -1 | grep 'AB-456' || fail "Didn't find both ticket strings"
-git log -1 --format="%s" | grep 'AB-987' || fail "Didn't find both ticket strings"
+git log "$old_master..HEAD" --format="%s" | grep 'AB-123' || fail "Didn't find both ticket strings"
+git log "$old_master..HEAD" --format="%s" | grep 'AB-456' || fail "Didn't find both ticket strings"
+git log "$old_master..HEAD" --format="%s" | grep 'AB-987' || fail "Didn't find both ticket strings"
 
 echo "----------------------------------------------------------------------"
