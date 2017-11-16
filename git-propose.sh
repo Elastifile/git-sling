@@ -186,11 +186,13 @@ if $DEV_TASK ; then
     if [ -z "$TICKETS" ] ; then
         echo "No ticket specified, CI may decide to create a ticket for you."
     else
+        show_usage
         echo "ERROR: Can't specify both --dev-task and --ticket"
         exit 1
     fi
 else
     if [ -z "$TICKETS" ] ; then
+        show_usage
         echo "ERROR: Must use either --ticket or --dev-task"
         exit 1
     else
