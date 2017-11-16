@@ -12,7 +12,7 @@ do
     logit reset --hard origin/master
     add_commit_file "step$i"
     echo "step$i" >> $expected_steps_order
-    yes | run_cmd $sling_propose master
+    yes | run_cmd $sling_propose --dev-task master
 done
 
 cd_server

@@ -7,7 +7,7 @@ master_hash=$(git rev-parse origin/master)
 logit checkout -b reject_me
 add_commit_file reject_me
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 cd_server
 

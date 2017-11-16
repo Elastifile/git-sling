@@ -17,7 +17,7 @@ logit push
 # Tell sling to rebase staging branch over master
 
 logit checkout rebase_staging
-yes | run_cmd $sling_propose --rebase master
+yes | run_cmd $sling_propose --dev-task --rebase master
 
 cd_server
 

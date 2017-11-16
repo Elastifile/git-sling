@@ -8,8 +8,8 @@ git push -u origin dry_run_test
 add_commit_file dry_run_test
 
 # with --dry-run, no need for piping 'yes'
-run_cmd $sling_propose dry_run_test --dry-run
-run_cmd $sling_propose master --dry-run
+run_cmd $sling_propose --dev-task dry_run_test --dry-run
+run_cmd $sling_propose --dev-task master --dry-run
 
 
 cd_server

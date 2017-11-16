@@ -5,7 +5,9 @@ logit reset --hard origin/master
 
 add_commit_file ticket_test
 
-yes | run_cmd $sling_propose --ticket=AB-123 --ticket=AB-456 master
+yes | run_cmd $sling_propose                                            master && fail "Shouldn't require either --ticket or --dev-task"
+yes | run_cmd $sling_propose --dev-task --ticket=AB-123 --ticket=AB-456 master && fail "Shouldn't allow both flags"
+yes | run_cmd $sling_propose            --ticket=AB-123 --ticket=AB-456 master
 
 logit checkout -b ticket_test_2
 logit reset --hard origin/master

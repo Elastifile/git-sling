@@ -9,7 +9,7 @@ logit reset --hard origin/master
 add_commit_file "double_propose_A_file1"
 add_commit_file "double_propose_A_file2"
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 cd_server
 
@@ -24,8 +24,8 @@ git branch -r |grep -E '/in-progress/.*duplicate_propose' || fail "Should have i
 
 add_commit_file "double_propose_A_file3"
 
-yes | run_cmd $sling_propose master
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
+yes | run_cmd $sling_propose --dev-task master
 
 cd_server
 

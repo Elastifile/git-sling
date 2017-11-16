@@ -19,7 +19,7 @@ logit merge --no-ff flatten_test_staging
 
 add_commit_file flatten_test3
 
-yes | run_cmd $sling_propose --no-flatten master
+yes | run_cmd $sling_propose --dev-task --no-flatten master
 
 cd_server
 

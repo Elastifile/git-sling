@@ -4,14 +4,14 @@ logit reset --hard HEAD^1
 
 add_commit_file not_rebased
 
-yes | run_cmd $sling_propose master && fail "Expecting propose to fail because not rebased!"
+yes | run_cmd $sling_propose --dev-task master && fail "Expecting propose to fail because not rebased!"
 
 echo "Testing un-rebasable proposal"
 
 logit reset --hard origin/master
 add_commit_file unrebasable "client side"
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 echo "----------------------------------------------------------------------"
 

@@ -10,7 +10,7 @@ add_commit_file meddling_commit
 echo 'bla' >> ./meddling_commit
 logit add ./meddling_commit
 logit commit -m"meddling"
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 
 logit checkout -b "resume_in_progress"
@@ -23,7 +23,7 @@ chmod +x ./sleep_prepush.sh
 logit add ./sleep_prepush.sh
 logit commit -m'Add ./sleep_prepush.sh'
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 cd_server
 

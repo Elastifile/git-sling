@@ -16,7 +16,7 @@ logit reset --hard origin/master
 logit checkout -b "proposal_in_queue_first"
 add_commit_file "proposal_in_queue_first"
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 logit checkout master
 
@@ -25,7 +25,7 @@ add_commit_file "specific_proposal"
 
 source_prefix="step-1"
 
-yes | run_cmd $sling_propose --source=$source_prefix master
+yes | run_cmd $sling_propose --dev-task --source=$source_prefix master
 
 logit checkout master
 specific_proposal_branch_name=$(git branch -r | grep "$source_prefix/proposed/.*specific_proposal" | cut -d/ -f2-)
@@ -48,7 +48,7 @@ logit reset --hard origin/master
 
 logit checkout "specific_proposal"
 
-yes | run_cmd $sling_propose --source=$source_prefix master
+yes | run_cmd $sling_propose --dev-task --source=$source_prefix master
 
 # Go back to server, run in without force dry run
 cd_server

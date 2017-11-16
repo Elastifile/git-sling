@@ -9,7 +9,7 @@ logit checkout master
 logit checkout -b test_not_matching
 add_commit_file test_not_matching
 
-yes | run_cmd $sling_propose branch_not_matching
+yes | run_cmd $sling_propose --dev-task branch_not_matching
 
 cd_server
 

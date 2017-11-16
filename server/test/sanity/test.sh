@@ -35,7 +35,7 @@ add_commit_file 1
 add_commit_file 2
 add_commit_file 3
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 cd $serverdir
 logit clone $remote work
@@ -60,7 +60,7 @@ cd_client
 delete_rejected_branches
 
 add_prepush
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 echo "----------------------------------------------------------------------"
 

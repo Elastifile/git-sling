@@ -5,7 +5,7 @@ cd_client
 logit checkout -b source_target_1
 add_commit_file source_target_1
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 echo "----------------------------------------------------------------------"
 

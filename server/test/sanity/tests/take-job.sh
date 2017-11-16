@@ -7,7 +7,7 @@ master_hash=$(git rev-parse origin/master)
 logit checkout -b take_my_job
 add_commit_file take_my_freakin_job
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 client_user_email=$(git config user.email)
 

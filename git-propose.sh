@@ -39,7 +39,7 @@ check_for_upgrade() {
 
 show_usage() {
     echo | cat <<EOF
-Usage: git propose <target branch> [[--ticket=TICKET]] [-y] [--rebase] [--dry-run] [--no-upgrade-check] [--vip] [--source=SOURCE_PREFIX]
+Usage: git propose <target branch> [[--ticket=TICKET] | --dev-task] [-y] [--rebase] [--dry-run] [--no-upgrade-check] [--vip] [--source=SOURCE_PREFIX]
 
  --rebase             Propose to just rebase the current branch instead of merging it into the target branch
  --dry-run            Don't actually merge the changes; just check that rebase + prepush passes.
@@ -52,6 +52,8 @@ Usage: git propose <target branch> [[--ticket=TICKET]] [-y] [--rebase] [--dry-ru
  --ticket=TICKET      Include the string TICKET in the branch names.
                       May be given multiple times, all given strings will be included in the branch name.
                       (For use with post-merge tools, e.g. bug trackers)
+
+ --dev-task           Propose without naming a ticket
 
 Pipeline options:
  --source=SOURCE_PREFIX
@@ -125,6 +127,7 @@ MOVE_BRANCH_MODE="base"
 FLATTEN=true
 ASSUME_YES=false
 USE_GIT_EMAIL=true
+DEV_TASK=false
 TICKETS=""
 for arg in "$@"; do
     case $arg in
@@ -157,6 +160,9 @@ for arg in "$@"; do
             TICKETS="${TICKETS} ${arg#*=}"
             shift
             ;;
+        --dev-task)
+            DEV_TASK=true
+            ;;
         -y)
             ASSUME_YES=true
             ;;
@@ -175,6 +181,22 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+if $DEV_TASK ; then
+    if [ -z "$TICKETS" ] ; then
+        echo "No ticket specified, CI may decide to create a ticket for you."
+    else
+        echo "ERROR: Can't specify both --dev-task and --ticket"
+        exit 1
+    fi
+else
+    if [ -z "$TICKETS" ] ; then
+        echo "ERROR: Must use either --ticket or --dev-task"
+        exit 1
+    else
+        echo "Tickets: $TICKETS"
+    fi
+fi
 
 if [ $(uname) == "Darwin" ]; then
     SED=gsed

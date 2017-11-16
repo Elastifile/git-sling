@@ -6,7 +6,7 @@ logit reset --hard origin/master
 
 add_commit_file directly_on_master
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 cd_server
 

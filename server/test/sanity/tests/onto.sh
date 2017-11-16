@@ -11,7 +11,7 @@ logit reset --hard origin/integration/base
 add_commit_file integration_test
 
 # This should do nothing:
-! ( echo n | run_cmd $sling_propose integration/base ) || fail "Should exit with failure when given 'no'"
+! ( echo n | run_cmd $sling_propose --dev-task integration/base ) || fail "Should exit with failure when given 'no'"
 
 ! ( git branch -r | grep 'sling/.*integration_test' ) || fail "Branch should not be proposed yet"
 
@@ -29,7 +29,7 @@ logit fetch -p
 ! ( git log --format="%H %s" origin/integration/base | grep "integration_test" ) || fail "Expected integration branch to not include the new commit"
 
 # Check also the -y flag to propose:
-run_cmd $sling_propose -y integration/base
+run_cmd $sling_propose --dev-task -y integration/base
 
 echo "----------------------------------------------------------------------"
 
@@ -51,7 +51,7 @@ logit checkout -b branch/with/slashes
 logit reset --hard origin/integration/base
 add_commit_file integration_best
 
-yes | run_cmd $sling_propose integration/base
+yes | run_cmd $sling_propose --dev-task integration/base
 
 echo "----------------------------------------------------------------------"
 

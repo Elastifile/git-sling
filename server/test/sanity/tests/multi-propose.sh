@@ -8,17 +8,17 @@ logit reset --hard origin/master
 add_commit_file "multi_propose_A_file1"
 add_commit_file "multi_propose_A_file2"
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 logit checkout -b "multi_propose_B"
 logit reset --hard origin/master
 add_commit_file "multi_propose_B_file1"
 add_commit_file "multi_propose_B_file2"
 
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 logit checkout "multi_propose_A"
-yes | run_cmd $sling_propose master
+yes | run_cmd $sling_propose --dev-task master
 
 cd_server
 
