@@ -39,7 +39,7 @@ check_for_upgrade() {
 
 show_usage() {
     echo | cat <<EOF
-Usage: git propose <target branch> [[--ticket=TICKET] | --dev-task] [-y] [--rebase] [--dry-run] [--no-upgrade-check] [--vip] [--source=SOURCE_PREFIX]
+Usage: git propose <target branch> [[--ticket=TICKET] | --dev-task | --dry-run] [-y] [--rebase] [--no-upgrade-check] [--vip] [--source=SOURCE_PREFIX]
 
  --rebase             Propose to just rebase the current branch instead of merging it into the target branch
  --dry-run            Don't actually merge the changes; just check that rebase + prepush passes.
@@ -190,13 +190,21 @@ if $DEV_TASK ; then
         echo "ERROR: Can't specify both --dev-task and --ticket"
         exit 1
     fi
+    if $IS_DRY_RUN ; then
+        echo "--dry-run given, will ignore --dev-task"
+    fi
 else
     if [ -z "$TICKETS" ] ; then
-        show_usage
-        echo "ERROR: Must use either --ticket or --dev-task"
-        exit 1
+        if ! $IS_DRY_RUN ; then
+            show_usage
+            echo "ERROR: Must use either --ticket or --dev-task"
+            exit 1
+        fi
     else
         echo "Tickets: $TICKETS"
+        if $IS_DRY_RUN ; then
+            echo "--dry-run given, will ignore --tickets"
+        fi
     fi
 fi
 

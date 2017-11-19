@@ -40,4 +40,19 @@ git log "$old_master..HEAD" --format="%s" | grep 'AB-123' || fail "Didn't find b
 git log "$old_master..HEAD" --format="%s" | grep 'AB-456' || fail "Didn't find both ticket strings"
 git log "$old_master..HEAD" --format="%s" | grep 'AB-987' || fail "Didn't find both ticket strings"
 
+# check that dry-run doesn't need --ticket / --dev-task
+
+add_commit_file ticket_dry_run_test
+
+yes | run_cmd $sling_propose --dry-run master
+
+cd_server
+
+echo "Expecting success..."
+run_cmd $sling_server poll -- $prepush || fail "ERROR: Server should succeed!"
+
+echo "----------------------------------------------------------------------"
+
+cd_client
+
 echo "----------------------------------------------------------------------"
