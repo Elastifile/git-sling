@@ -12,3 +12,6 @@ git config --global alias.unpropose \
     '!'"$SCRIPT_DIR"'/git-delete-sling-branch.sh proposed'
 git config --global alias.delete-rejected \
     '!'"$SCRIPT_DIR"'/git-delete-sling-branch.sh rejected'
+
+git config --global alias.queue \
+	'!'"$SCRIPT_DIR""/print-queue.sh $(git config user.email | awk -F '\\.|@' '{print $1}')"
