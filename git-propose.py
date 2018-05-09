@@ -239,9 +239,14 @@ def main(parsed_args):
         option_error("No commits to send! Aborting.")
     if commit_count == 1 and (len(parsed_args.ticket) > 0):
         orig_msg_lines = cmd_lines(["git", "log", "-1", "--format=%B"])
-        tickets = " ".join(parsed_args.ticket)
-        orig_msg_subject = "{orig_msg} - {tickets}".format(orig_msg=orig_msg_lines[0].strip(), tickets=tickets)
-        cmd(["git", "commit", "--amend", "-m", orig_msg_subject + "\n".join(orig_msg_lines[1:])])
+        missing_tickets = [
+            ticket
+            for ticket in parsed_args.ticket
+            if re.match(r"\b{}\b".format(re.escape(ticket)), orig_msg_lines[0]) is None]
+        if len(missing_tickets) > 0:
+            tickets = " ".join(missing_tickets)
+            new_subject = "{orig_msg} - {tickets}".format(orig_msg=orig_msg_lines[0].strip(), tickets=tickets)
+            cmd(["git", "commit", "--amend", "-m", new_subject + "\n".join(orig_msg_lines[1:])])
 
     echo("Proposing: {}".format(proposed_branch))
     echo("Commits:")
