@@ -68,17 +68,6 @@ def build_parser():
         action="store_true",
         help="Assume 'yes' on all questions (non-interactive)")
 
-    upgrade_group = parser.add_mutually_exclusive_group()
-    upgrade_group.add_argument(
-        "--upgrade-check",
-        default=False,
-        action="store_true",
-        help="Automatic checking for a new version of git-sling")
-    upgrade_group.add_argument(
-        "--no-upgrade-check",
-        default=False,
-        action="store_true")
-
     ticket_group = parser.add_mutually_exclusive_group()
     ticket_group.add_argument(
         "--ticket",
@@ -107,13 +96,6 @@ def validate_prefix(prefix):
     prefix_regex=r'^[-a-zA-Z0-9_]+$'
     if re.match(prefix_regex, prefix) is None:
         option_error("Invalid prefix: {}".format(prefix))
-
-
-def spawn_in_other_git_repo(args, path):
-    env = dict(os.environ)
-    for key in ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_PREFIX']:
-        del env[key]
-    subprocess.check_call(args, cwd=path, env=env, shell=False)
 
 def cmd(args, error_msg=None):
     try:
@@ -166,10 +148,6 @@ def prompt(msg, assume_yes):
 def main(parsed_args):
     if parsed_args.ticket is None:
         parsed_args.ticket = []
-
-    if parsed_args.upgrade_check:
-        spawn_in_other_git_repo(["bash", os.path.join(SCRIPT_DIR, "check-for-upgrade.sh")],
-                                SCRIPT_DIR)
 
     cmd(["git", "check-ref-format", "refs/heads/{}".format(parsed_args.onto_branch)],
         "Not a valid branch name: {}".format(parsed_args.onto_branch))
