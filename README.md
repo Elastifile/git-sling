@@ -12,16 +12,13 @@ Run:
 
     git clone <git sling repository>
     cd git-sling
-    ./add-it-alias.sh
+    ln -s $(realpath .)/git-propose ~/.local/bin/
 
-That will add 3 new aliases to git:
+This will make the following command available:
 
 `git propose` - proposes the current branch. The server will (eventually) rebase & test this branch. If it passes, it will be merged to master. If it fails, the branch will be rejected.
 
-`git unpropose <pattern>` - removes a previously proposed branch (even if you run this, the branch may still be proposed if the server has already began working on it - to be fixed).
-
-`git delete-rejected <pattern>` - removes a rejected branch.
-
+You can use `git propose -h` for more information.
 
 ## Example workflow
 
