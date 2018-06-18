@@ -75,8 +75,11 @@ add_prepush() {
 add_commit_file() {
     local filename
     filename=$(basename "$1")
-    local content="${2:-bla}"
+    local content
+    content="${2:-bla}"
+    local message
+    message="${3:-$filename}"
     echo "$content" > "$filename"
     logit add "$filename"
-    logit commit -m"$filename"
+    logit commit -m"$message"
 }

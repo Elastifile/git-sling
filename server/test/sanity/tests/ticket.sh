@@ -3,7 +3,9 @@ echo "Testing ticket"
 logit checkout -b ticket_test
 logit reset --hard origin/master
 
-add_commit_file ticket_test
+add_commit_file ticket_test blabla "ticket_test
+after newline
+after newline"
 
 yes | run_cmd $sling_propose                                            master && fail "Shouldn't require either --ticket or --dev-task"
 yes | run_cmd $sling_propose --dev-task --ticket=AB-123 --ticket=AB-456 master && fail "Shouldn't allow both flags"
@@ -36,6 +38,10 @@ logit checkout master
 old_master=$(git rev-parse HEAD)
 logit rebase
 
+if git log "$old_master..HEAD" --format="%s" | grep 'after newline' ;
+then
+    fail "Didn't expect to find the part after the newline in %s"
+fi
 git log "$old_master..HEAD" --format="%s" | grep 'AB-123' || fail "Didn't find both ticket strings"
 git log "$old_master..HEAD" --format="%s" | grep 'AB-456' || fail "Didn't find both ticket strings"
 git log "$old_master..HEAD" --format="%s" | grep 'AB-987' || fail "Didn't find both ticket strings"
