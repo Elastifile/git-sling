@@ -28,7 +28,7 @@ source_prefix="step-1"
 yes | run_cmd $sling_propose --dev-task --source=$source_prefix master
 
 logit checkout master
-specific_proposal_branch_name=$(git branch -r | grep "$source_prefix/proposed/.*specific_proposal" | cut -d/ -f2-)
+specific_proposal_branch_name=$(git --no-pager branch -r | grep "$source_prefix/proposed/.*specific_proposal" | cut -d/ -f2-)
 
 cd_server
 
@@ -44,7 +44,7 @@ logit reset --hard origin/master
 ! ( git log --format="%s" | grep 'proposal_in_queue_first' ) || fail "Error: Shouldn't have handled this proposal"
 ! ( git log --format="%s" | grep 'specific_proposal' ) || fail "Error: Shouldn't have handled this proposal"
 
-! ( git branch -r | grep $specific_proposal_branch_name ) || fail "Error: specific proposal branch should be deleted"
+! ( git --no-pager branch -r | grep $specific_proposal_branch_name ) || fail "Error: specific proposal branch should be deleted"
 
 logit checkout "specific_proposal"
 

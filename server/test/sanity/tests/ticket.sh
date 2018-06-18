@@ -4,6 +4,7 @@ logit checkout -b ticket_test
 logit reset --hard origin/master
 
 add_commit_file ticket_test blabla "ticket_test
+
 after newline
 after newline"
 

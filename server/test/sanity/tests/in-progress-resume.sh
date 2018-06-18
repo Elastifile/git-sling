@@ -30,15 +30,15 @@ cd_server
 # merge the meddling branch
 echo "Expecting success..."
 git fetch
-MEDDLING_PROPOSAL_BRANCH=$(git branch -r | grep -E ' *origin/sling/.*proposed.*meddling' | cut -d/ -f2- )
+MEDDLING_PROPOSAL_BRANCH=$(git --no-pager branch -r | grep -E ' *origin/sling/.*proposed.*meddling' | cut -d/ -f2- )
 run_cmd $sling_server proposal "${MEDDLING_PROPOSAL_BRANCH}" -- $prepush || fail "ERROR: Server should succeed!"
 
-git branch -r | grep '/in-progress/' && fail "In-progress branch should not exist!"
+git --no-pager branch -r | grep '/in-progress/' && fail "In-progress branch should not exist!"
 
 echo "Expecting timeout..."
 run_cmd timeout 5 $sling_server poll -- ./sleep_prepush.sh && fail "ERROR: Server should have aborted on timeout!"
 
-git branch -r | grep '/in-progress/' || fail "In-progress branch not created!"
+git --no-pager branch -r | grep '/in-progress/' || fail "In-progress branch not created!"
 
 cd_server
 
@@ -46,7 +46,7 @@ cd_server
 echo "Expecting success..."
 run_cmd $sling_server poll -- $prepush || fail "ERROR: Server should succeed!"
 
-git branch -r | grep '/in-progress/' && fail "In-progress branch should not exist!"
+git --no-pager branch -r | grep '/in-progress/' && fail "In-progress branch should not exist!"
 
 cd_client
 

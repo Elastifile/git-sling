@@ -13,7 +13,7 @@ add_commit_file integration_test
 # This should do nothing:
 ! ( echo n | run_cmd $sling_propose --dev-task integration/base ) || fail "Should exit with failure when given 'no'"
 
-! ( git branch -r | grep 'sling/.*integration_test' ) || fail "Branch should not be proposed yet"
+! ( git --no-pager branch -r | grep 'sling/.*integration_test' ) || fail "Branch should not be proposed yet"
 
 echo "----------------------------------------------------------------------"
 

@@ -21,7 +21,7 @@ cd_client
 logit fetch -p
 
 echo "Current branches:"
-git branch -r
+git --no-pager branch -r
 echo "----------------"
 
 git branch -a | grep 'step-2/.*/source_target_1' || fail "Expected branch to move to step-2"
@@ -35,7 +35,7 @@ cd_client
 logit fetch -p
 
 echo "Current branches:"
-git branch -r
+git --no-pager branch -r
 echo "----------------"
 
 ! ( git branch -a | grep 'step-2/.*/source_target_1' ) || fail "Expected branch to be removed from step-2"
@@ -51,7 +51,7 @@ cd_client
 logit fetch -p
 
 echo "Current branches:"
-git branch -r
+git --no-pager branch -r
 echo "----------------"
 
 ! ( git branch -a | grep 'step-2/.*/source_target_1' ) || fail "Expected branch to be removed from step-2"

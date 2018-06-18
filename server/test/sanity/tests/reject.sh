@@ -27,4 +27,4 @@ cd_client
 
 logit fetch -p
 
-git branch -r | grep '/rejected/.*reject_me' || fail "Expected branch to be rejected"
+git --no-pager branch -r | grep '/rejected/.*reject_me' || fail "Expected branch to be rejected"

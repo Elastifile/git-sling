@@ -20,7 +20,7 @@ cd_client
 
 logit fetch -p
 
-git branch -r |grep -E '/in-progress/.*duplicate_propose' || fail "Should have in-progress"
+git --no-pager branch -r |grep -E '/in-progress/.*duplicate_propose' || fail "Should have in-progress"
 
 add_commit_file "double_propose_A_file3"
 

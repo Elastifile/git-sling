@@ -14,7 +14,7 @@ client_user_email=$(git config user.email)
 cd_server
 
 check_in_prog() {
-    git branch -r | grep -E '^ *origin/sling/in-progress/.*/take_my_job/'
+    git --no-pager branch -r | grep -E '^ *origin/sling/in-progress/.*/take_my_job/'
 }
 
 is_empty() {

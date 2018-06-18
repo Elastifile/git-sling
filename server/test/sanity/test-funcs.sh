@@ -49,14 +49,14 @@ run_cmd() {
 }
 
 logit() {
-    run_cmd git $@
+    run_cmd git --no-pager $@
 }
 
 delete_rejected_branches() {
     logit fetch -p
-    git branch -r | grep -E "sling/rejected/[0-9]+/$testbranch" || fail "Expecting rejected branch!"
+    git --no-pager branch -r | grep -E "sling/rejected/[0-9]+/$testbranch" || fail "Expecting rejected branch!"
     local rejected_branch
-    rejected_branch=$(git branch -r | grep -E "sling/rejected/[0-9]+/$testbranch")
+    rejected_branch=$(git --no-pager branch -r | grep -E "sling/rejected/[0-9]+/$testbranch")
     logit push --delete origin $(echo "$rejected_branch" | cut -d'/' -f2-)
 }
 
@@ -81,5 +81,8 @@ add_commit_file() {
     message="${3:-$filename}"
     echo "$content" > "$filename"
     logit add "$filename"
-    logit commit -m"$message"
+    local message_file
+    message_file="$(mktemp)"
+    echo "$message" > $message_file
+    logit commit -F $message_file
 }

@@ -19,4 +19,4 @@ run_cmd_fail "$sling_server poll -- echo Done" || fail "ERROR: Server should fai
 cd_client
 
 logit fetch -p
-git branch -r | grep 'rejected' | grep '/deleted_remote_branch/' || fail "Server should have created a rejected branch and pushed it"
+git --no-pager branch -r | grep 'rejected' | grep '/deleted_remote_branch/' || fail "Server should have created a rejected branch and pushed it"

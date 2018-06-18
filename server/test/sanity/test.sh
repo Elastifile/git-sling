@@ -46,13 +46,13 @@ git config user.name "Your Name"
 echo "----------------------------------------------------------------------"
 
 echo "Testing server in: $serverdir/work"
-git branch -r | grep rejected && fail "No rejected branches expected yet" || true
+git --no-pager branch -r | grep rejected && fail "No rejected branches expected yet" || true
 
 # Should fail, no tools/prepush script in repo
 echo "Expecting failure..."
 run_cmd_fail $sling_server poll -- $prepush || fail "ERROR: Server should fail!"
 
-git branch -r | grep rejected || fail "Server should have created a rejected branch and pushed it"
+git --no-pager branch -r | grep rejected || fail "Server should have created a rejected branch and pushed it"
 
 echo "----------------------------------------------------------------------"
 
@@ -74,7 +74,7 @@ echo "----------------------------------------------------------------------"
 cd_client
 
 logit fetch -p
-! ( git branch -r | grep -E "sling/propose/[0-9]+/$testbranch" ) || fail "Expecting proposal branch to be deleted!"
+! ( git --no-pager branch -r | grep -E "sling/propose/[0-9]+/$testbranch" ) || fail "Expecting proposal branch to be deleted!"
 
 exec_test() {
     cd_client
@@ -82,7 +82,7 @@ exec_test() {
     logit checkout master
     logit reset --hard origin/master
 
-    git branch -r | grep proposed | cut -d/ -f2- | xargs -r git push --delete origin
+    git --no-pager branch -r | grep proposed | cut -d/ -f2- | xargs -r git push --delete origin
     git branch | grep proposed | xargs -r git branch -D
 
     echo "----------------------------------------------------------------------"
