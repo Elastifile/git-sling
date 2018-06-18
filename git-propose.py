@@ -105,13 +105,13 @@ def cmd(args, error_msg=None):
             option_error(error_msg + ' (command failed: {})'.format(repr(' '.join(args))))
         raise
 
-def cmd_lines(args, error_msg=None):
+def cmd_lines(args, error_msg=None, strip_empty=False):
     return [x.strip()
             for x in cmd(args, error_msg=error_msg).split("\n")
-            if x.strip() != ""]
+            if not strip_empty or (x.strip() != "")]
 
 def cmd_single_line(args, error_msg=None):
-    res = cmd_lines(args, error_msg=error_msg)
+    res = cmd_lines(args, error_msg=error_msg, strip_empty=True)
     assert isinstance(res[0], str)
     assert len(res) == 1
     return res[0]
@@ -153,7 +153,7 @@ def main(parsed_args):
         "Not a valid branch name: {}".format(parsed_args.onto_branch))
 
     cmd(["git", "fetch"])
-    remote_branches = cmd_lines(["git", "branch", "-r"])
+    remote_branches = cmd_lines(["git", "branch", "-r"], strip_empty=True)
 
     branch_regex = r"\b{}\b".format(re.escape('origin/' + parsed_args.onto_branch))
     for remote_branch in remote_branches:
@@ -189,7 +189,7 @@ def main(parsed_args):
     if parsed_args.rebase:
         move_branch_param = escape_branch(proposed_branch)
     else:
-        merged_remote_branches = cmd_lines(["git", "branch", "--merged", "HEAD", "-r"])
+        merged_remote_branches = cmd_lines(["git", "branch", "--merged", "HEAD", "-r"], strip_empty=True)
         remote_onto_branch = "origin/{}".format(parsed_args.onto_branch)
         if remote_onto_branch not in merged_remote_branches:
             option_error("HEAD is not rebased over {}! Please rebase it before proposing.".format(remote_onto_branch))
@@ -212,11 +212,11 @@ def main(parsed_args):
         escaped_email = escape_email(email)
         )
 
-    commit_count = len(cmd_lines(["git", "log", "--oneline", "{}..HEAD".format(base_commit)]))
+    commit_count = len(cmd_lines(["git", "log", "--oneline", "{}..HEAD".format(base_commit)], strip_empty=True))
     if commit_count == 0:
         option_error("No commits to send! Aborting.")
     if commit_count == 1 and (len(parsed_args.ticket) > 0):
-        orig_msg_lines = cmd_lines(["git", "log", "-1", "--format=%B"])
+        orig_msg_lines = cmd_lines(["git", "log", "-1", "--format=%B"], strip_empty=False)
         missing_tickets = [
             ticket
             for ticket in parsed_args.ticket
@@ -224,7 +224,8 @@ def main(parsed_args):
         if len(missing_tickets) > 0:
             tickets = " ".join(missing_tickets)
             new_subject = "{orig_msg} - {tickets}".format(orig_msg=orig_msg_lines[0].strip(), tickets=tickets)
-            cmd(["git", "commit", "--amend", "-m", new_subject + "\n".join(orig_msg_lines[1:])])
+            new_msg_lines = [new_subject] + orig_msg_lines[1:]
+            cmd(["git", "commit", "--amend", "-m", "\n".join(new_msg_lines)])
 
     echo("Proposing: {}".format(proposed_branch))
     echo("Commits:")
