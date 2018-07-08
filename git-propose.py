@@ -6,6 +6,7 @@ import sys
 import os
 import os.path
 import subprocess
+import email.utils
 
 SCRIPT_DIR = os.path.dirname(__file__)
 
@@ -116,10 +117,13 @@ def cmd_single_line(args, error_msg=None):
     assert len(res) == 1
     return res[0]
 
-def escape_email(email):
-    escaped_email = email.replace('@', '-at-')
-    if escaped_email == email:
-        option_error("your email ({}) contains '-at-' - we don't support that!".format(email))
+def escape_email(orig_email):
+    (parsed_name, parsed_email) = email.utils.parseaddr(orig_email)
+    if (parsed_name != '') or ('@' not in parsed_email) or ('.' not in parsed_email):
+        option_error("suspicious looking email: '{}' - are you sure it's valid?".format(orig_email))
+    escaped_email = parsed_email.replace('@', '-at-')
+    if escaped_email == parsed_email:
+        option_error("your email ({}) contains '-at-' - we don't support that!".format(orig_email))
     return escaped_email
 
 def escape_branch(branch):

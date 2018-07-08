@@ -95,6 +95,7 @@ exec_test() {
 
 
 exec_test "tests/basic.sh"
+exec_test "tests/bad-email.sh"
 exec_test "tests/ticket.sh"
 exec_test "tests/duplicate-propose.sh"
 exec_test "tests/reject.sh"
