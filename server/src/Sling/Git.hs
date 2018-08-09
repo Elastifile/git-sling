@@ -111,7 +111,7 @@ status = map (singleMatch filePat) <$> git ["status", "--porcelain"]
     -- ^|^ rmap (singleMatch filePat)
 
 shortenHash :: Hash -> EShell Hash
-shortenHash h = hash . head <$> git ["rev-parse", "--short", fromHash h]
+shortenHash h = hash . head <$> git ["rev-parse", "--short=10", fromHash h]
 
 unshortenHash :: Hash -> EShell Hash
 unshortenHash h = hash . head <$> git ["rev-parse", fromHash h]

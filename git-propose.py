@@ -178,7 +178,7 @@ def main(parsed_args):
         if re.match(ticket_re, proposed_branch) is None:
             proposed_branch += "_" + ticket.strip().replace(" ", "_")
 
-    base_commit = cmd_single_line(["git", "log", "-1", "origin/{}".format(parsed_args.onto_branch), "--format=%h"]).strip()
+    base_commit = cmd_single_line(["git", "rev-parse", "--short=10", "origin/{}".format(parsed_args.onto_branch)]).strip()
 
     if parsed_args.vip:
         next_index = 1
