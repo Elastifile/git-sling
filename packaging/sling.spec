@@ -37,9 +37,9 @@ mkdir -p ~/.local/{bin,stack}
 export PATH=~/.local/bin:$PATH
 
 if [[ ! -x ~/.local/bin/stack ]] ; then
-    wget -O - https://github.com/commercialhaskell/stack/releases/download/v1.0.4.3/stack-1.0.4.3-linux-x86_64.tar.gz | \
+    wget -O - https://github.com/commercialhaskell/stack/releases/download/v1.7.1/stack-1.7.1-linux-x86_64.tar.gz | \
 	tar -zxf - -C ~/.local/stack
-    ln -f -s ~/.local/stack/stack-1.0.4.3-linux-x86_64/stack ~/.local/bin/stack
+    ln -f -s ~/.local/stack/stack-1.7.1-linux-x86_64/stack ~/.local/bin/stack
 fi
 
 cd server
