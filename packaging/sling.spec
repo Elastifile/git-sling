@@ -66,6 +66,7 @@ mkdir -p $RPM_BUILD_ROOT/%{_prefix}/bin
 sling_exe=$RPM_BUILD_ROOT/%{_prefix}/bin/sling
 cp server/.stack-work/install/*/*/*/bin/sling ${sling_exe}
 cp git-propose.sh $RPM_BUILD_ROOT/%{_prefix}/bin
+cp git-propose.py $RPM_BUILD_ROOT/%{_prefix}/bin
 cp git-propose $RPM_BUILD_ROOT/%{_prefix}/bin
 
 chmod a+x ${sling_exe}
