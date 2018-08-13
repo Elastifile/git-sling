@@ -78,6 +78,7 @@ chrpath -d ${sling_exe}
 %{_prefix}/bin/sling
 %{_prefix}/bin/git-propose
 %{_prefix}/bin/git-propose.sh
+%{_prefix}/bin/git-propose.py
 # FIXME: Version needs to be automated here.
 %{_prefix}/share/doc/sling-0.1.0.0/LICENSE.txt
 
