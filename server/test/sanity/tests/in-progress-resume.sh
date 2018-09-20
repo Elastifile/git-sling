@@ -1,4 +1,3 @@
-
 echo "Testing resumption of in-progress proposal that crashed"
 
 cd_client
@@ -58,4 +57,3 @@ test -e ./sleep_prepush.sh && fail "Should not exist yet"
 logit rebase
 
 test -e ./sleep_prepush.sh || fail "Should exist!"
-

@@ -26,6 +26,7 @@ data FilterOptions =
     , optSourcePrefix :: Maybe Prefix
     , optNoConcurrent :: Bool
     , optInProgressFromAnyServer :: Bool
+    , optNoInProgress :: Bool
     }
 
 data PollOptions =
@@ -169,6 +170,8 @@ filterOptionsParser =
                   help "Prevent concurrent jobs: don't match any proposal, if there's an in-progress proposal matching the filter" )
     <*> switch ( long "any-host" <>
                   help "Match in-progress proposals even if they belong to a different host" )
+    <*> switch ( long "no-in-progress" <>
+                  help "Don't match in-progress proposals from any host" )
 
 
 parser :: Parser Options
@@ -201,6 +204,3 @@ parser =
 
 isDryRun :: Options -> Proposal -> Bool
 isDryRun options proposal = optForceDryRun options || proposalDryRun proposal
-
-
-

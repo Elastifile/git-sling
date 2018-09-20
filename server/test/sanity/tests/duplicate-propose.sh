@@ -1,4 +1,3 @@
-
 echo "Testing duplicate propose"
 
 cd_client
@@ -44,6 +43,8 @@ run_cmd $sling_server poll -- $prepush || fail "ERROR: Server should succeed!"
 cd_client
 
 logit fetch -p
+
+git --no-pager branch -r | grep '/in-progress/' && fail "In-progress branch should not exist!"
 
 logit checkout master
 

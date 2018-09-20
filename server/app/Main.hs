@@ -149,9 +149,16 @@ usage = List.intercalate "\n"
     , "where COMMAND is the prepush command to run on each attempted branch."
     ]
 
+filterByStatus :: FilterOptions -> Proposal -> Bool
+filterByStatus filterOptions proposal =
+    case proposalStatus proposal of
+        ProposalProposed{} -> True
+        ProposalInProgress{} -> not $ optNoInProgress filterOptions
+        ProposalRejected -> False
+
 shouldConsiderProposal :: FilterOptions -> Proposal -> Bool
 shouldConsiderProposal filterOptions proposal =
-    (proposalStatus proposal /= ProposalRejected)
+    (filterByStatus filterOptions proposal)
     && (optSourcePrefix filterOptions == proposalPrefix proposal)
     && fromMaybe True (checkFilter <$> optBranchFilterAll filterOptions)
     && fromMaybe True (not . checkFilter <$> optBranchExcludeFilterAll filterOptions)
