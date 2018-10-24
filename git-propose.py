@@ -175,7 +175,7 @@ def main(parsed_args):
     proposed_branch = cmd_single_line(["git", "rev-parse", "--abbrev-ref", "HEAD"])
     for ticket in parsed_args.ticket:
         ticket_re = r"\b{}\b".format(re.escape(ticket))
-        if re.match(ticket_re, proposed_branch) is None:
+        if re.search(ticket_re, proposed_branch) is None:
             proposed_branch += "_" + ticket.strip().replace(" ", "_")
 
     base_commit = cmd_single_line(["git", "rev-parse", "--short=10", "origin/{}".format(parsed_args.onto_branch)]).strip()
@@ -224,7 +224,7 @@ def main(parsed_args):
         missing_tickets = [
             ticket
             for ticket in parsed_args.ticket
-            if re.match(r"\b{}\b".format(re.escape(ticket)), orig_msg_lines[0]) is None]
+            if re.search(r"\b{}\b".format(re.escape(ticket)), orig_msg_lines[0]) is None]
         if len(missing_tickets) > 0:
             tickets = " ".join(missing_tickets)
             new_subject = "{orig_msg} - {tickets}".format(orig_msg=orig_msg_lines[0].strip(), tickets=tickets)
