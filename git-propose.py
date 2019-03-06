@@ -183,7 +183,17 @@ def main(parsed_args):
     if parsed_args.vip:
         next_index = 1
     else:
-        next_index = 1 + len([x for x in remote_branches if '/proposed/' in x])
+        highest_index = 0
+        for branch_name in remote_branches:
+            try:
+                index_match = re.match(r'(origin/)?sling.*/proposed/(?P<index>[0-9]+)/', branch_name)
+                if index_match is None:
+                    continue
+                index = int(index_match.groupdict().get('index', 0))
+                highest_index = max(highest_index, index)
+            except ValueError:
+                pass
+        next_index = highest_index + 1
 
     if parsed_args.email is None:
         email = cmd_single_line(["git", "config", "user.email"]).strip()
