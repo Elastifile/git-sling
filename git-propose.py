@@ -207,6 +207,9 @@ def main(parsed_args):
         remote_onto_branch = "origin/{}".format(parsed_args.onto_branch)
         if remote_onto_branch not in merged_remote_branches:
             option_error("HEAD is not rebased over {}! Please rebase it before proposing.".format(remote_onto_branch))
+        merge_commits = cmd_lines(["git", "log", "--merges", "{}..HEAD".format(remote_onto_branch)], strip_empty=True)
+        if not parsed_args.no_flatten and (len(merge_commits) != 0):
+            option_error("Your branch contains merge commits! Please remove them (e.g. try to rebase over {})".format(remote_onto_branch))
         move_branch_param = base_commit
 
     if parsed_args.source is not None:
