@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 import argparse
 import re
@@ -100,7 +100,7 @@ def validate_prefix(prefix):
 
 def cmd(args, error_msg=None):
     try:
-        return subprocess.check_output(args, shell=False)
+        return subprocess.check_output(args, shell=False).decode('utf-8')
     except subprocess.CalledProcessError:
         if error_msg is not None:
             option_error(error_msg + ' (command failed: {})'.format(repr(' '.join(args))))
